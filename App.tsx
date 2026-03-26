@@ -1,0 +1,46 @@
+/**
+ * NECESSITY B2B Ecommerce
+ * @format
+ */
+
+import React, { useEffect } from 'react';
+import { StatusBar } from 'react-native';
+import Toast from 'react-native-toast-message';
+import { GestureHandlerRootView } from 'react-native-gesture-handler';
+import { SafeAreaProvider } from 'react-native-safe-area-context';
+import { Provider } from 'react-redux';
+import { NavigationContainer } from '@react-navigation/native';
+import { store } from 'src/store';
+import { hydrateAuthThunk } from 'src/store/authSlice';
+import { setAuthTokenGetter } from 'src/services/necessity';
+import { RootNavigator } from 'src/navigation/RootNavigator';
+import { colors } from 'src/theme/colors';
+
+function App(): React.JSX.Element {
+  useEffect(() => {
+    const init = async () => {
+      await store.dispatch(hydrateAuthThunk());
+      setAuthTokenGetter(() => store.getState().auth.token);
+    };
+    init();
+  }, []);
+
+  return (
+    <GestureHandlerRootView style={{ flex: 1 }}>
+      <Provider store={store}>
+        <SafeAreaProvider>
+          <StatusBar
+            barStyle="dark-content"
+            backgroundColor={colors.background}
+          />
+          <NavigationContainer>
+            <RootNavigator />
+          </NavigationContainer>
+          <Toast />
+        </SafeAreaProvider>
+      </Provider>
+    </GestureHandlerRootView>
+  );
+}
+
+export default App;
