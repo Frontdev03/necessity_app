@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useRef, useState } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Image, ActivityIndicator } from 'react-native';
 import { useRoute, useNavigation } from '@react-navigation/native';
 import Icon from 'react-native-vector-icons/Feather';
@@ -15,6 +15,7 @@ import { spacing } from 'src/theme/spacing';
 import { fontSize, fontWeight } from 'src/theme/fonts';
 import { AppButton } from 'src/components/AppButton';
 import { addItem } from 'src/store/cartSlice';
+import { getNecessityErrorMessage } from 'src/services/necessity';
 import Toast from 'react-native-toast-message';
 
 export const ProductDetailScreen: React.FC = () => {
@@ -26,10 +27,18 @@ export const ProductDetailScreen: React.FC = () => {
     const [quantity, setQuantity] = useState(product ? product.pricing.moq : 1);
     const [selectedVariantId, setSelectedVariantId] = useState<string | null>(route.params?.variantId || null);
     const [loading, setLoading] = useState(!product);
+    /** List API does not include variant rows; fetch detail so Add to Cart can run for VARIANT products. */
+    const [hydratingVariants, setHydratingVariants] = useState(() => {
+        const p = route.params?.product;
+        return !!(p?.hasVariants && !(p.variants && p.variants.length > 0));
+    });
     const [addingToCart, setAddingToCart] = useState(false);
     const [pricingLoading, setPricingLoading] = useState(false);
     const [liveUnitPrice, setLiveUnitPrice] = useState<number | null>(null);
     const [liveSource, setLiveSource] = useState<string>('');
+
+    /** Avoid repeat GET /detail when variants stay empty after one fetch. */
+    const fetchedVariantDetailForIdRef = useRef<string | null>(null);
 
     React.useEffect(() => {
         if (!product && route.params?.productId) {
@@ -58,6 +67,50 @@ export const ProductDetailScreen: React.FC = () => {
             setLoading(false);
         }
     }, [route.params?.productId]);
+
+    React.useEffect(() => {
+        if (!product?._id || !product.hasVariants) {
+            setHydratingVariants(false);
+            return;
+        }
+        if (product.variants && product.variants.length > 0) {
+            setHydratingVariants(false);
+            fetchedVariantDetailForIdRef.current = product._id;
+            return;
+        }
+
+        const pid = product._id;
+        if (fetchedVariantDetailForIdRef.current === pid) {
+            setHydratingVariants(false);
+            return;
+        }
+
+        fetchedVariantDetailForIdRef.current = pid;
+        let cancelled = false;
+        setHydratingVariants(true);
+        (async () => {
+            try {
+                const res = await getProductDetail(pid);
+                if (cancelled || !res.success || !res.data) return;
+                setProduct(res.data);
+                const firstId = res.data.variants?.[0]?._id ?? null;
+                setSelectedVariantId((prev) => prev ?? route.params?.variantId ?? firstId);
+                const vid = route.params?.variantId ?? firstId;
+                if (vid) {
+                    const moq =
+                        res.data.variants?.find((v) => v._id === vid)?.moq ?? res.data.pricing.moq;
+                    setQuantity((q) => Math.max(q, moq));
+                }
+            } catch (err) {
+                console.log('Failed to hydrate variants', err);
+            } finally {
+                if (!cancelled) setHydratingVariants(false);
+            }
+        })();
+        return () => {
+            cancelled = true;
+        };
+    }, [product?._id, product?.hasVariants, product?.variants?.length]);
 
     const selectedVariant: ApiProductVariant | null = useMemo(() => {
         if (!product?.hasVariants) return null;
@@ -97,7 +150,7 @@ export const ProductDetailScreen: React.FC = () => {
         run();
     }, [product?.hasVariants, selectedVariant?._id, quantity]);
 
-    if (loading || !product) {
+    if (loading || !product || hydratingVariants) {
         return (
             <View style={styles.container}>
                 <View style={{ marginTop: 100, alignItems: 'center' }}>
@@ -111,6 +164,8 @@ export const ProductDetailScreen: React.FC = () => {
     const effectiveMoq = selectedVariant?.moq || product.pricing.moq;
     const basePrice = selectedVariant?.basePrice ?? product.pricing.basePrice;
     const displayUnitPrice = liveUnitPrice ?? basePrice;
+    const maxSelectableStock =
+        product.inventory.stockQuantity > 0 ? product.inventory.stockQuantity : Number.MAX_SAFE_INTEGER;
 
     const handleAddToCart = async () => {
         if (!product) return;
@@ -149,16 +204,13 @@ export const ProductDetailScreen: React.FC = () => {
                     text2: res.message || 'Error occurred while adding to cart.',
                 });
             }
-        } catch (error: any) {
+        } catch (error: unknown) {
             console.log('--- ADD TO CART ERROR ---');
             console.log('Error object:', error);
-            if (error.response) {
-                console.log('Error response data:', error.response.data);
-            }
             Toast.show({
                 type: 'error',
-                text1: 'Error',
-                text2: 'Failed to connect to the server.',
+                text1: 'Could not add to cart',
+                text2: getNecessityErrorMessage(error),
             });
         } finally {
             setAddingToCart(false);
@@ -277,7 +329,7 @@ export const ProductDetailScreen: React.FC = () => {
                     <Text style={styles.qtyText}>{quantity}</Text>
                     <TouchableOpacity
                         style={styles.qtyButton}
-                        onPress={() => setQuantity(Math.min(product.inventory.stockQuantity, quantity + 1))}
+                        onPress={() => setQuantity(Math.min(maxSelectableStock, quantity + 1))}
                     >
                         <Icon name="plus" size={20} color={colors.primary} />
                     </TouchableOpacity>

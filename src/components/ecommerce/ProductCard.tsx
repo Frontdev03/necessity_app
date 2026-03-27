@@ -34,33 +34,37 @@ export const ProductCard: React.FC<Props> = ({ product, onPress, onAddToCart }) 
         }
     };
 
+    // Use a non-touchable root so the + control is not nested inside another pressable
+    // (nested TouchableOpacity often fails on Android — taps do nothing).
     return (
-        <TouchableOpacity style={styles.container} onPress={onPress} activeOpacity={0.9}>
-            <Image source={{ uri: imageUrl }} style={styles.image} />
-            <View style={styles.content}>
-                <Text style={styles.category}>{product.basicInfo.categoryId.name}</Text>
-                <Text style={styles.name} numberOfLines={2}>
-                    {product.basicInfo.name}
-                </Text>
-                <View style={styles.footer}>
-                    <View>
-                        <Text style={styles.price}>₹{product.pricing.basePrice.toLocaleString()}</Text>
-                        <Text style={styles.minOrder}>Min: {product.pricing.moq} {product.pricing.unit}</Text>
-                    </View>
-                    <TouchableOpacity
-                        style={[styles.addButton, addingToCart && styles.addButtonDisabled]}
-                        onPress={handleAddPress}
-                        disabled={addingToCart}
-                    >
-                        {addingToCart ? (
-                            <ActivityIndicator size="small" color={colors.white} />
-                        ) : (
-                            <Icon name="plus" size={20} color={colors.white} />
-                        )}
-                    </TouchableOpacity>
+        <View style={styles.container}>
+            <TouchableOpacity style={styles.mainPressable} onPress={onPress} activeOpacity={0.9}>
+                <Image source={{ uri: imageUrl }} style={styles.image} />
+                <View style={styles.textBlock}>
+                    <Text style={styles.category}>{product.basicInfo.categoryId.name}</Text>
+                    <Text style={styles.name} numberOfLines={2}>
+                        {product.basicInfo.name}
+                    </Text>
                 </View>
+            </TouchableOpacity>
+            <View style={styles.footer}>
+                <View>
+                    <Text style={styles.price}>₹{product.pricing.basePrice.toLocaleString()}</Text>
+                    <Text style={styles.minOrder}>Min: {product.pricing.moq} {product.pricing.unit}</Text>
+                </View>
+                <TouchableOpacity
+                    style={[styles.addButton, addingToCart && styles.addButtonDisabled]}
+                    onPress={handleAddPress}
+                    disabled={addingToCart}
+                >
+                    {addingToCart ? (
+                        <ActivityIndicator size="small" color={colors.white} />
+                    ) : (
+                        <Icon name="plus" size={20} color={colors.white} />
+                    )}
+                </TouchableOpacity>
             </View>
-        </TouchableOpacity>
+        </View>
     );
 };
 
@@ -74,13 +78,17 @@ const styles = StyleSheet.create({
         borderColor: colors.border,
         width: '48%',
     },
+    mainPressable: {
+        width: '100%',
+    },
+    textBlock: {
+        padding: spacing.sm,
+        paddingBottom: 0,
+    },
     image: {
         width: '100%',
         height: 120,
         backgroundColor: '#f0f0f0',
-    },
-    content: {
-        padding: spacing.sm,
     },
     category: {
         fontSize: 10,
@@ -100,6 +108,8 @@ const styles = StyleSheet.create({
         flexDirection: 'row',
         justifyContent: 'space-between',
         alignItems: 'flex-end',
+        padding: spacing.sm,
+        paddingTop: spacing.sm,
     },
     price: {
         fontSize: fontSize.base,

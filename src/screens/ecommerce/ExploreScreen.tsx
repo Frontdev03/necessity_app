@@ -18,6 +18,7 @@ import { spacing } from 'src/theme/spacing';
 import { fontSize, fontWeight } from 'src/theme/fonts';
 import Icon from 'react-native-vector-icons/Feather';
 import { getCategories, ApiCategory, getProducts, ApiProduct, addToCartApi } from 'src/services/ecommerceNecessity';
+import { getNecessityErrorMessage } from 'src/services/necessity';
 import { ProductCard } from 'src/components/ecommerce/ProductCard';
 import { addItem } from 'src/store/cartSlice';
 import Toast from 'react-native-toast-message';
@@ -78,11 +79,11 @@ export const ExploreScreen: React.FC = () => {
                     text2: res.message || 'Error adding to cart.',
                 });
             }
-        } catch {
+        } catch (err: unknown) {
             Toast.show({
                 type: 'error',
-                text1: 'Error',
-                text2: 'Failed to connect to the server.',
+                text1: 'Could not add to cart',
+                text2: getNecessityErrorMessage(err),
             });
         }
     };

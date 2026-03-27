@@ -13,6 +13,16 @@ const initialState: CartState = {
   items: [],
 };
 
+/** Avoid forcing qty to 0 when the catalog payload has stock 0/missing but the server accepted the add. */
+function clampQuantityToStock(product: ApiProduct, quantity: number): number {
+  const stock = product.inventory?.stockQuantity;
+  const q = Math.max(1, quantity);
+  if (stock == null || Number.isNaN(Number(stock)) || stock <= 0) {
+    return q;
+  }
+  return Math.min(Number(stock), q);
+}
+
 /** Build a minimal ApiProduct from a cart line for display in CartScreen */
 function apiCartItemToCartItem(apiItem: ApiCartItem): CartItem {
   const product = apiItem.productId;
@@ -75,12 +85,12 @@ export const cartSlice = createSlice({
       const { product, quantity, variantId } = action.payload;
       const existing = state.items.find((i) => i.product._id === product._id && i.variantId === variantId);
       if (existing) {
-        existing.quantity = Math.min(product.inventory.stockQuantity, existing.quantity + quantity);
+        existing.quantity = clampQuantityToStock(product, existing.quantity + quantity);
       } else {
         state.items.push({
           lineId: variantId || `${product._id}-${Date.now()}`,
           product,
-          quantity: Math.min(product.inventory.stockQuantity, quantity),
+          quantity: clampQuantityToStock(product, quantity),
           variantId,
         });
       }
@@ -95,7 +105,7 @@ export const cartSlice = createSlice({
         if (quantity <= 0) {
           state.items = state.items.filter((i) => i.lineId !== lineId);
         } else {
-          item.quantity = Math.min(item.product.inventory.stockQuantity, quantity);
+          item.quantity = clampQuantityToStock(item.product, quantity);
         }
       }
     },
