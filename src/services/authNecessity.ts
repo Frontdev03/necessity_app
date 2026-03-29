@@ -72,6 +72,16 @@ export async function login(payload: LoginPayload): Promise<AuthData> {
     .trim()
     .replace(/^Bearer\s+/i, '');
 
+  const rawSeg = (user as { customerSegment?: unknown }).customerSegment;
+  const normalizedSegment: 'NEW' | 'REGULAR' | undefined =
+    typeof rawSeg === 'string'
+      ? rawSeg.trim().toUpperCase() === 'REGULAR'
+        ? 'REGULAR'
+        : rawSeg.trim().toUpperCase() === 'NEW'
+          ? 'NEW'
+          : undefined
+      : undefined;
+
   // Map to compatible User object
   const mappedUser: AuthData['user'] = {
     ...user,
@@ -79,6 +89,8 @@ export async function login(payload: LoginPayload): Promise<AuthData> {
     full_name: user.name,
     is_active: user.isActive,
     mobile_number: '', // Backend doesn't provide this in login response
+    customerSegment: normalizedSegment ?? 'NEW',
+    allowPartialPayment: Boolean((user as { allowPartialPayment?: boolean }).allowPartialPayment),
   };
 
   return {
@@ -212,6 +224,32 @@ export async function forgotPassword(payload: ForgotPasswordPayload): Promise<Fo
     body: payload,
   });
   return response;
+}
+
+export interface CurrentUserResponse {
+  success: boolean;
+  message?: string;
+  data: {
+    id: string;
+    email: string;
+    name: string;
+    businessName?: string;
+    phone?: string;
+    gstNumber?: string;
+    panNumber?: string;
+    role: string;
+    roleId: string;
+    isActive: boolean;
+    status?: string;
+    customerSegment?: 'NEW' | 'REGULAR';
+    allowPartialPayment?: boolean;
+  };
+}
+
+export async function fetchCurrentUser(): Promise<CurrentUserResponse> {
+  return necessityRequest<CurrentUserResponse>('/api/auth/me', {
+    method: 'GET',
+  });
 }
 
 export { getNecessityErrorMessage };

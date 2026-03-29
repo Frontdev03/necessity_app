@@ -20,6 +20,9 @@ export interface User {
   training_hours?: number;
   status?: string;
   photo_url?: string;
+  /** From B2B backend: REGULAR unlocks installment cash-discount options at checkout */
+  customerSegment?: 'NEW' | 'REGULAR';
+  allowPartialPayment?: boolean;
 }
 
 export interface AuthData {

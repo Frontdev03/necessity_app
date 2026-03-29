@@ -11,13 +11,21 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { Provider } from 'react-redux';
 import { NavigationContainer } from '@react-navigation/native';
 import { store } from 'src/store';
-import { hydrateAuthThunk } from 'src/store/authSlice';
+import { hydrateAuthThunk, refreshAuthProfileThunk } from 'src/store/authSlice';
 import { RootNavigator } from 'src/navigation/RootNavigator';
 import { colors } from 'src/theme/colors';
 
 function App(): React.JSX.Element {
   useEffect(() => {
-    store.dispatch(hydrateAuthThunk());
+    void store.dispatch(hydrateAuthThunk()).then((action) => {
+      if (
+        hydrateAuthThunk.fulfilled.match(action) &&
+        action.payload?.token &&
+        action.payload.user?.role === 'customer'
+      ) {
+        void store.dispatch(refreshAuthProfileThunk());
+      }
+    });
   }, []);
 
   return (

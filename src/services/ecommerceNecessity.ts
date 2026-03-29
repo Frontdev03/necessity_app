@@ -343,7 +343,12 @@ export interface CreatePaymentOrderParams {
     customerId: string;
     items: PaymentOrderItem[];
     totalAmount: number;
-    paymentMode: 'CREDIT' | 'UPI' | 'BANK' | 'GATEWAY';
+    /** App checkout uses credit / account terms only */
+    paymentMode: 'CREDIT';
+    promoCode?: string;
+    installmentPlanCount?: number;
+    paymentSchedule?: 'FULL' | 'PARTIAL';
+    initialPaymentAmount?: number;
 }
 
 export interface CreatePaymentOrderResponse {
@@ -367,6 +372,25 @@ export async function createPaymentOrderApi(
             'Content-Type': 'application/json',
         },
         body: data,
+    });
+}
+
+export interface ValidatePromoResponse {
+    success: boolean;
+    message?: string;
+    data?: {
+        discountAmount: number;
+        code: string;
+    };
+}
+
+export async function validatePromoApi(
+    code: string,
+    subtotalBeforeTax: number
+): Promise<ValidatePromoResponse> {
+    return necessityRequest<ValidatePromoResponse>('/api/customer/promo/validate', {
+        method: 'POST',
+        body: { code: code.trim(), subtotalBeforeTax },
     });
 }
 

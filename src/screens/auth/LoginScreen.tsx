@@ -15,7 +15,7 @@ import * as yup from 'yup';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import Toast from 'react-native-toast-message';
 import { useDispatch } from 'react-redux';
-import { loginThunk } from 'src/store/authSlice';
+import { loginThunk, refreshAuthProfileThunk } from 'src/store/authSlice';
 
 import type { AppDispatch } from 'src/store';
 import type { AuthStackParamList } from 'src/navigation/types';
@@ -54,10 +54,15 @@ export const LoginScreen: React.FC = () => {
 
   const onSubmit = async (data: LoginFormData) => {
     try {
-      const result = await dispatch(
+      await dispatch(
         loginThunk({ email: data.email, password: data.password })
       ).unwrap();
 
+      try {
+        await dispatch(refreshAuthProfileThunk()).unwrap();
+      } catch {
+        // Profile refresh is best-effort; login already returned segment from /login when available
+      }
     } catch (err: any) {
       Toast.show({
         type: 'error',

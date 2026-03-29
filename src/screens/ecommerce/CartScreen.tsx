@@ -16,16 +16,29 @@ import { colors } from 'src/theme/colors';
 import { spacing } from 'src/theme/spacing';
 import { fontSize, fontWeight } from 'src/theme/fonts';
 import { AppButton } from 'src/components/AppButton';
-import { updateQuantity, removeItem, setCartFromApi } from 'src/store/cartSlice';
+import { updateQuantity, removeItem, setCartFromApi, setAppliedPromo } from 'src/store/cartSlice';
+import { refreshAuthProfileThunk } from 'src/store/authSlice';
 import type { RootState } from 'src/store';
-import { getCart, removeFromCartApi, removeProductFromCartApi, updateCartApi } from 'src/services/ecommerceNecessity';
+import {
+  getCart,
+  removeFromCartApi,
+  removeProductFromCartApi,
+  updateCartApi,
+  validatePromoApi,
+} from 'src/services/ecommerceNecessity';
 import Toast from 'react-native-toast-message';
+import { AppInput } from 'src/components/AppInput';
+import { computeCartTotals, lineSubtotalFromItems } from 'src/utils/checkoutPricing';
 
 export const CartScreen: React.FC = () => {
   const navigation = useNavigation<any>();
   const dispatch = useDispatch();
   const items = useSelector((state: RootState) => state.cart.items);
+  const appliedPromo = useSelector((state: RootState) => state.cart.appliedPromo);
+  const authUser = useSelector((state: RootState) => state.auth.user);
   const [loading, setLoading] = useState(true);
+  const [promoInput, setPromoInput] = useState('');
+  const [promoLoading, setPromoLoading] = useState(false);
 
   useFocusEffect(
     useCallback(() => {
@@ -33,6 +46,9 @@ export const CartScreen: React.FC = () => {
       const loadCart = async () => {
         setLoading(true);
         try {
+          if (authUser?.role === 'customer') {
+            dispatch(refreshAuthProfileThunk()).catch(() => {});
+          }
           const res = await getCart();
           if (!cancelled && res.success && res.data?.items) {
             dispatch(setCartFromApi({ items: res.data.items }));
@@ -49,20 +65,19 @@ export const CartScreen: React.FC = () => {
       return () => {
         cancelled = true;
       };
-    }, [dispatch])
+    }, [dispatch, authUser?.role])
   );
 
-  const subtotal = items.reduce(
-    (sum, item) => sum + (item.unitPrice ?? item.product.pricing.basePrice ?? 0) * item.quantity,
-    0
-  );
+  const lineSubtotal = lineSubtotalFromItems(items);
   const originalSubtotal = items.reduce(
     (sum, item) => sum + (item.product.pricing.basePrice ?? 0) * item.quantity,
     0
   );
-  const totalDiscount = Math.max(0, originalSubtotal - subtotal);
-  const gstAmount = subtotal * 0.18;
-  const totalAmount = subtotal + gstAmount;
+  const totalDiscount = Math.max(0, originalSubtotal - lineSubtotal);
+  const promoDiscount = appliedPromo?.discountAmount ?? 0;
+  const segment = authUser?.customerSegment;
+  const priced = computeCartTotals(items, promoDiscount, 1, segment);
+  const { cashDiscountAmount, gstAmount, grandTotal: totalAmount, cashDiscountPercent } = priced;
 
   const [updatingId, setUpdatingId] = useState<string | null>(null);
 
@@ -135,6 +150,40 @@ export const CartScreen: React.FC = () => {
     navigation.navigate('Checkout');
   };
 
+  const handleApplyPromo = async () => {
+    const code = promoInput.trim();
+    if (!code) {
+      Toast.show({ type: 'info', text1: 'Enter a promo code' });
+      return;
+    }
+    const sub = lineSubtotalFromItems(items);
+    if (sub <= 0) return;
+    setPromoLoading(true);
+    try {
+      const res = await validatePromoApi(code, sub);
+      if (!res.success || !res.data) {
+        Toast.show({
+          type: 'error',
+          text1: 'Promo code',
+          text2: res.message || 'Could not apply code',
+        });
+        return;
+      }
+      dispatch(setAppliedPromo({ code: res.data.code, discountAmount: res.data.discountAmount }));
+      Toast.show({ type: 'success', text1: 'Promo applied' });
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : 'Could not validate promo';
+      Toast.show({ type: 'error', text1: 'Promo code', text2: msg });
+    } finally {
+      setPromoLoading(false);
+    }
+  };
+
+  const handleRemovePromo = () => {
+    dispatch(setAppliedPromo(null));
+    setPromoInput('');
+  };
+
   if (loading) {
     return (
       <View style={styles.emptyContainer}>
@@ -168,9 +217,53 @@ export const CartScreen: React.FC = () => {
 
       <ScrollView
         showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
         contentContainerStyle={styles.scrollContent}
       >
         <View style={styles.card}>
+          <Text style={styles.blockSectionTitle}>Promo and savings</Text>
+          <View style={styles.promoBlock}>
+            <Text style={styles.promoTitle}>Promo code</Text>
+            {appliedPromo ? (
+              <View style={styles.promoAppliedRow}>
+                <Text style={styles.promoAppliedText}>
+                  {appliedPromo.code} (−₹{appliedPromo.discountAmount.toLocaleString()})
+                </Text>
+                <TouchableOpacity onPress={handleRemovePromo}>
+                  <Text style={styles.promoRemove}>Remove</Text>
+                </TouchableOpacity>
+              </View>
+            ) : (
+              <>
+                <AppInput
+                  placeholder="Enter code"
+                  value={promoInput}
+                  onChangeText={setPromoInput}
+                  autoCapitalize="characters"
+                  containerStyle={styles.promoInputWrap}
+                />
+                <TouchableOpacity
+                  style={[styles.promoApplyBtn, promoLoading && styles.promoApplyDisabled]}
+                  onPress={handleApplyPromo}
+                  disabled={promoLoading}
+                >
+                  {promoLoading ? (
+                    <ActivityIndicator size="small" color={colors.primary} />
+                  ) : (
+                    <Text style={styles.promoApplyText}>Apply</Text>
+                  )}
+                </TouchableOpacity>
+              </>
+            )}
+          </View>
+          {segment === 'REGULAR' && (
+            <Text style={styles.checkoutHint}>
+              You have access to installment payment splits and trade discounts — choose your plan at checkout.
+            </Text>
+          )}
+          <View style={styles.summaryDivider} />
+
+          <Text style={styles.blockSectionTitle}>Items</Text>
           {items.map((item) => {
             const effectiveUnit = item.unitPrice ?? item.product.pricing.basePrice;
             const listBase = item.product.pricing.basePrice;
@@ -264,13 +357,25 @@ export const CartScreen: React.FC = () => {
           <View style={styles.summaryRow}>
             <Text style={styles.summaryLabel}>Subtotal</Text>
             <Text style={styles.summaryValue}>
-              ₹{subtotal.toLocaleString()}
+              ₹{lineSubtotal.toLocaleString()}
             </Text>
           </View>
           {totalDiscount > 0 && (
             <View style={styles.summaryRow}>
-              <Text style={styles.discountLabel}>Discount</Text>
+              <Text style={styles.discountLabel}>Volume / tier discount</Text>
               <Text style={styles.discountValue}>-₹{totalDiscount.toLocaleString()}</Text>
+            </View>
+          )}
+          {promoDiscount > 0 && (
+            <View style={styles.summaryRow}>
+              <Text style={styles.discountLabel}>Promo</Text>
+              <Text style={styles.discountValue}>-₹{promoDiscount.toLocaleString()}</Text>
+            </View>
+          )}
+          {cashDiscountAmount > 0 && (
+            <View style={styles.summaryRow}>
+              <Text style={styles.discountLabel}>Est. trade cash discount ({cashDiscountPercent}%)</Text>
+              <Text style={styles.discountValue}>-₹{cashDiscountAmount.toLocaleString()}</Text>
             </View>
           )}
           <View style={styles.summaryRow}>
@@ -347,7 +452,7 @@ const styles = StyleSheet.create({
     marginTop: 4,
   },
 
-  scrollContent: { padding: spacing.lg, paddingBottom: 140 },
+  scrollContent: { padding: spacing.lg, paddingBottom: 200 },
 
   card: {
     backgroundColor: colors.surface,
@@ -493,4 +598,51 @@ const styles = StyleSheet.create({
     color: colors.primary,
   },
   checkoutButton: { flex: 1.2, height: 50 },
+
+  blockSectionTitle: {
+    fontSize: fontSize.base,
+    fontWeight: fontWeight.bold,
+    color: colors.text,
+    marginBottom: spacing.sm,
+  },
+  promoBlock: {
+    marginBottom: spacing.sm,
+  },
+  promoTitle: {
+    fontSize: 12,
+    fontWeight: fontWeight.bold,
+    color: colors.textSecondary,
+    marginBottom: spacing.sm,
+    textTransform: 'uppercase',
+    letterSpacing: 0.2,
+  },
+  promoInputWrap: { marginBottom: spacing.sm },
+  promoApplyBtn: {
+    alignSelf: 'flex-start',
+    paddingHorizontal: spacing.lg,
+    paddingVertical: 10,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: colors.primary,
+    backgroundColor: 'rgba(230, 126, 34, 0.08)',
+  },
+  promoApplyDisabled: { opacity: 0.6 },
+  promoApplyText: {
+    fontSize: fontSize.sm,
+    fontWeight: fontWeight.bold,
+    color: colors.primary,
+  },
+  promoAppliedRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  promoAppliedText: { fontSize: fontSize.sm, fontWeight: fontWeight.medium, color: colors.text },
+  promoRemove: { fontSize: fontSize.sm, color: colors.error, fontWeight: fontWeight.bold },
+  checkoutHint: {
+    fontSize: 12,
+    color: colors.textSecondary,
+    marginBottom: spacing.sm,
+    fontStyle: 'italic',
+  },
 });

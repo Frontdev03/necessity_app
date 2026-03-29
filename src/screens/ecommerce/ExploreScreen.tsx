@@ -20,6 +20,7 @@ import Icon from 'react-native-vector-icons/Feather';
 import { getCategories, ApiCategory, getProducts, ApiProduct, addToCartApi } from 'src/services/ecommerceNecessity';
 import { getNecessityErrorMessage } from 'src/services/necessity';
 import { ProductCard } from 'src/components/ecommerce/ProductCard';
+import { isVariantProduct } from 'src/utils/productVariants';
 import { addItem } from 'src/store/cartSlice';
 import Toast from 'react-native-toast-message';
 
@@ -64,9 +65,21 @@ export const ExploreScreen: React.FC = () => {
 
     const handleAddToCart = async (product: ApiProduct, quantity: number) => {
         try {
-            const res = await addToCartApi({ productId: product._id, quantity });
+            if (isVariantProduct(product) && product.variants?.length !== 1) {
+                navigation.navigate('ProductDetail', { productId: product._id });
+                return;
+            }
+            const soleVariantId =
+                isVariantProduct(product) && product.variants?.length === 1
+                    ? product.variants[0]._id
+                    : undefined;
+            const res = await addToCartApi({
+                productId: product._id,
+                quantity,
+                ...(soleVariantId ? { variantId: soleVariantId } : {}),
+            });
             if (res.success) {
-                dispatch(addItem({ product, quantity }));
+                dispatch(addItem({ product, quantity, variantId: soleVariantId }));
                 Toast.show({
                     type: 'success',
                     text1: 'Added to Cart',

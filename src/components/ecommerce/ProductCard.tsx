@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { View, Text, Image, StyleSheet, TouchableOpacity, ActivityIndicator } from 'react-native';
 import { ApiProduct } from 'src/services/ecommerceNecessity';
+import { isVariantProduct } from 'src/utils/productVariants';
 import { colors } from 'src/theme/colors';
 import { spacing } from 'src/theme/spacing';
 import { fontSize, fontWeight } from 'src/theme/fonts';
@@ -17,7 +18,7 @@ export const ProductCard: React.FC<Props> = ({ product, onPress, onAddToCart }) 
     const imageUrl = product.media.images[0]?.url || 'https://via.placeholder.com/150';
 
     const handleAddPress = async () => {
-        if (product.hasVariants) {
+        if (isVariantProduct(product)) {
             onPress();
             return;
         }

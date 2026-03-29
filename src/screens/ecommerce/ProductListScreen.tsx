@@ -11,6 +11,7 @@ import { getCategories, ApiCategory, getProducts, ApiProduct, addToCartApi } fro
 import { getNecessityErrorMessage } from 'src/services/necessity';
 import { ProductCard } from 'src/components/ecommerce/ProductCard';
 import { addItem } from 'src/store/cartSlice';
+import { isVariantProduct } from 'src/utils/productVariants';
 
 export const ProductListScreen: React.FC = () => {
     const route = useRoute<any>();
@@ -20,8 +21,12 @@ export const ProductListScreen: React.FC = () => {
 
     const handleAddToCart = async (product: ApiProduct, quantity: number) => {
         try {
+            if (isVariantProduct(product) && product.variants?.length !== 1) {
+                navigation.navigate('ProductDetail', { productId: product._id });
+                return;
+            }
             const soleVariantId =
-                product.hasVariants && product.variants?.length === 1
+                isVariantProduct(product) && product.variants?.length === 1
                     ? product.variants[0]._id
                     : undefined;
             const res = await addToCartApi({
@@ -30,7 +35,7 @@ export const ProductListScreen: React.FC = () => {
                 ...(soleVariantId ? { variantId: soleVariantId } : {}),
             });
             if (res.success) {
-                dispatch(addItem({ product, quantity }));
+                dispatch(addItem({ product, quantity, variantId: soleVariantId }));
                 Toast.show({
                     type: 'success',
                     text1: 'Added to Cart',

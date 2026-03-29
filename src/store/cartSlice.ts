@@ -5,12 +5,19 @@ import {
   type ApiCartItem,
 } from 'src/services/ecommerceNecessity';
 
+export interface AppliedPromo {
+  code: string;
+  discountAmount: number;
+}
+
 interface CartState {
   items: CartItem[];
+  appliedPromo: AppliedPromo | null;
 }
 
 const initialState: CartState = {
   items: [],
+  appliedPromo: null,
 };
 
 /** Avoid forcing qty to 0 when the catalog payload has stock 0/missing but the server accepted the add. */
@@ -111,12 +118,17 @@ export const cartSlice = createSlice({
     },
     clearCart: (state) => {
       state.items = [];
+      state.appliedPromo = null;
     },
     setCartFromApi: (state, action: PayloadAction<{ items: ApiCartItem[] }>) => {
       state.items = action.payload.items.map(apiCartItemToCartItem);
     },
+    setAppliedPromo: (state, action: PayloadAction<AppliedPromo | null>) => {
+      state.appliedPromo = action.payload;
+    },
   },
 });
 
-export const { addItem, removeItem, updateQuantity, clearCart, setCartFromApi } = cartSlice.actions;
+export const { addItem, removeItem, updateQuantity, clearCart, setCartFromApi, setAppliedPromo } =
+  cartSlice.actions;
 export default cartSlice.reducer;

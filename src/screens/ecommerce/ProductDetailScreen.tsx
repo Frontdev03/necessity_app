@@ -17,6 +17,7 @@ import { AppButton } from 'src/components/AppButton';
 import { addItem } from 'src/store/cartSlice';
 import { getNecessityErrorMessage } from 'src/services/necessity';
 import Toast from 'react-native-toast-message';
+import { isVariantProduct } from 'src/utils/productVariants';
 
 export const ProductDetailScreen: React.FC = () => {
     const route = useRoute<any>();
@@ -30,7 +31,7 @@ export const ProductDetailScreen: React.FC = () => {
     /** List API does not include variant rows; fetch detail so Add to Cart can run for VARIANT products. */
     const [hydratingVariants, setHydratingVariants] = useState(() => {
         const p = route.params?.product;
-        return !!(p?.hasVariants && !(p.variants && p.variants.length > 0));
+        return !!(p && isVariantProduct(p) && !(p.variants && p.variants.length > 0));
     });
     const [addingToCart, setAddingToCart] = useState(false);
     const [pricingLoading, setPricingLoading] = useState(false);
@@ -69,7 +70,7 @@ export const ProductDetailScreen: React.FC = () => {
     }, [route.params?.productId]);
 
     React.useEffect(() => {
-        if (!product?._id || !product.hasVariants) {
+        if (!product?._id || !isVariantProduct(product)) {
             setHydratingVariants(false);
             return;
         }
@@ -110,10 +111,10 @@ export const ProductDetailScreen: React.FC = () => {
         return () => {
             cancelled = true;
         };
-    }, [product?._id, product?.hasVariants, product?.variants?.length]);
+    }, [product?._id, product?.hasVariants, product?.basicInfo?.productType, product?.variants?.length]);
 
     const selectedVariant: ApiProductVariant | null = useMemo(() => {
-        if (!product?.hasVariants) return null;
+        if (!product || !isVariantProduct(product)) return null;
         const variants = product.variants || [];
         if (!variants.length) return null;
         const exact = variants.find((v) => v._id === selectedVariantId);
@@ -122,7 +123,7 @@ export const ProductDetailScreen: React.FC = () => {
 
     React.useEffect(() => {
         const run = async () => {
-            if (!product?.hasVariants || !selectedVariant?._id) {
+            if (!product || !isVariantProduct(product) || !selectedVariant?._id) {
                 setLiveUnitPrice(null);
                 setLiveSource('');
                 return;
@@ -148,7 +149,7 @@ export const ProductDetailScreen: React.FC = () => {
             }
         };
         run();
-    }, [product?.hasVariants, selectedVariant?._id, quantity]);
+    }, [product, selectedVariant?._id, quantity]);
 
     if (loading || !product || hydratingVariants) {
         return (
@@ -171,19 +172,17 @@ export const ProductDetailScreen: React.FC = () => {
         if (!product) return;
         setAddingToCart(true);
 
-        const payload = {
-            productId: product._id,
-            variantId: route.params?.variantId,
-            quantity,
-        };
-
+        const variantIdForCart = isVariantProduct(product) ? selectedVariant?._id : undefined;
         console.log('--- ADD TO CART ATTEMPT ---');
-        console.log('Sending Payload:', JSON.stringify(payload, null, 2));
+        console.log(
+            'Sending Payload:',
+            JSON.stringify({ productId: product._id, variantId: variantIdForCart, quantity }, null, 2)
+        );
 
         try {
             const res = await addToCartApi({
                 productId: product._id,
-                variantId: product.hasVariants ? selectedVariant?._id : undefined,
+                variantId: variantIdForCart,
                 quantity,
             });
 
@@ -191,7 +190,13 @@ export const ProductDetailScreen: React.FC = () => {
             console.log('Response:', JSON.stringify(res, null, 2));
 
             if (res.success) {
-                dispatch(addItem({ product, quantity, variantId: product.hasVariants ? selectedVariant?._id : undefined }));
+                dispatch(
+                    addItem({
+                        product,
+                        quantity,
+                        variantId: variantIdForCart,
+                    })
+                );
                 Toast.show({
                     type: 'success',
                     text1: 'Added to Cart',
@@ -266,7 +271,7 @@ export const ProductDetailScreen: React.FC = () => {
                         <Text style={styles.stockText}>{product.inventory.stockQuantity > 0 ? 'In Stock' : 'Out of Stock'}</Text>
                     </View>
 
-                    {product.hasVariants && (product.variants || []).length > 0 && (
+                    {isVariantProduct(product) && (product.variants || []).length > 0 && (
                         <>
                             <Text style={styles.sectionTitle}>Variants</Text>
                             <View style={styles.variantWrap}>
@@ -346,7 +351,7 @@ export const ProductDetailScreen: React.FC = () => {
                     title={addingToCart ? "Adding..." : "Add to Cart"}
                     onPress={handleAddToCart}
                     style={styles.addButton}
-                    disabled={addingToCart || (product.hasVariants && !selectedVariant)}
+                    disabled={addingToCart || (isVariantProduct(product) && !selectedVariant)}
                 />
             </View>
         </View>

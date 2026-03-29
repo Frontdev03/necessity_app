@@ -3,6 +3,7 @@ import {
   login as loginNecessity,
   logout as logoutNecessity,
   updateUser as updateUserNecessity,
+  fetchCurrentUser,
 } from 'src/services/authNecessity';
 import type { LoginPayload, UpdateUserPayload } from 'src/services/authNecessity';
 import {
@@ -60,6 +61,14 @@ export const logoutThunk = createAsyncThunk('auth/logout', async () => {
   }
 });
 
+export const refreshAuthProfileThunk = createAsyncThunk('auth/refreshProfile', async () => {
+  const res = await fetchCurrentUser();
+  if (!res.success || !res.data) {
+    throw new Error(res.message || 'Failed to load profile');
+  }
+  return res.data;
+});
+
 export const updateUserThunk = createAsyncThunk(
   'auth/updateUser',
   async (payload: UpdateUserPayload, { getState }) => {
@@ -108,7 +117,20 @@ const authSlice = createSlice({
       .addCase(loginThunk.fulfilled, (state, action) => {
         state.token = action.payload.token;
         state.refreshToken = action.payload.refresh_token || null;
-        state.user = action.payload.user;
+        const u = action.payload.user;
+        const rawSeg = u.customerSegment;
+        const normalizedSeg: 'NEW' | 'REGULAR' | undefined =
+          typeof rawSeg === 'string'
+            ? rawSeg.trim().toUpperCase() === 'REGULAR'
+              ? 'REGULAR'
+              : rawSeg.trim().toUpperCase() === 'NEW'
+                ? 'NEW'
+                : undefined
+            : undefined;
+        state.user = {
+          ...u,
+          customerSegment: normalizedSeg ?? u.customerSegment ?? 'NEW',
+        };
         state.isAuthenticated = true;
       })
       .addCase(hydrateAuthThunk.fulfilled, (state, action) => {
@@ -116,7 +138,23 @@ const authSlice = createSlice({
         if (action.payload) {
           state.token = action.payload.token;
           state.refreshToken = action.payload.refresh_token || null;
-          state.user = action.payload.user;
+          const u = action.payload.user;
+          const rawSeg = u?.customerSegment;
+          const normalizedSeg: 'NEW' | 'REGULAR' | undefined =
+            typeof rawSeg === 'string'
+              ? rawSeg.trim().toUpperCase() === 'REGULAR'
+                ? 'REGULAR'
+                : rawSeg.trim().toUpperCase() === 'NEW'
+                  ? 'NEW'
+                  : undefined
+              : undefined;
+          state.user = u
+            ? {
+                ...u,
+                customerSegment: normalizedSeg ?? u.customerSegment ?? 'NEW',
+                allowPartialPayment: Boolean(u.allowPartialPayment),
+              }
+            : null;
           state.isAuthenticated = true;
         }
       })
@@ -142,6 +180,38 @@ const authSlice = createSlice({
       })
       .addCase(updateUserThunk.fulfilled, (state, action) => {
         state.user = action.payload;
+      })
+      .addCase(refreshAuthProfileThunk.fulfilled, (state, action) => {
+        if (!state.user) return;
+        const d = action.payload;
+        const rawSeg = d.customerSegment;
+        const normalizedSeg: 'NEW' | 'REGULAR' | undefined =
+          typeof rawSeg === 'string'
+            ? rawSeg.trim().toUpperCase() === 'REGULAR'
+              ? 'REGULAR'
+              : rawSeg.trim().toUpperCase() === 'NEW'
+                ? 'NEW'
+                : undefined
+            : undefined;
+        state.user = {
+          ...state.user,
+          id: d.id,
+          uuid: d.id,
+          name: d.name,
+          full_name: d.name,
+          email: d.email,
+          role: d.role,
+          roleId: d.roleId,
+          isActive: d.isActive,
+          is_active: d.isActive,
+          status: d.status,
+          // Keep prior segment if /me omits the field (avoid wiping REGULAR after admin update)
+          customerSegment: normalizedSeg ?? state.user.customerSegment ?? 'NEW',
+          allowPartialPayment:
+            typeof d.allowPartialPayment === 'boolean'
+              ? d.allowPartialPayment
+              : state.user.allowPartialPayment,
+        };
       });
   },
 });

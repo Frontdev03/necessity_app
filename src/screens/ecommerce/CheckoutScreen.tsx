@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useCallback, useState } from 'react';
 import {
   View,
   Text,
@@ -8,8 +8,10 @@ import {
   Image,
   KeyboardAvoidingView,
   Platform,
+  Modal,
+  Pressable,
 } from 'react-native';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { useForm, Controller } from 'react-hook-form';
 import { yupResolver } from '@hookform/resolvers/yup';
 import * as yup from 'yup';
@@ -21,16 +23,23 @@ import { fontSize, fontWeight } from 'src/theme/fonts';
 import { AppInput } from 'src/components/AppInput';
 import { AppButton } from 'src/components/AppButton';
 import { clearCart } from 'src/store/cartSlice';
+import { refreshAuthProfileThunk } from 'src/store/authSlice';
 import type { RootState } from 'src/store';
 import Toast from 'react-native-toast-message';
-import RazorpayCheckout from 'react-native-razorpay';
-import { RAZORPAY_KEY_ID } from 'src/config/necessity';
 import {
   createPaymentOrderApi,
   removeFromCartApi,
   removeProductFromCartApi,
-  verifyPaymentApi,
 } from 'src/services/ecommerceNecessity';
+import { computeCartTotals, lineSubtotalFromItems } from 'src/utils/checkoutPricing';
+
+/** Regular trade accounts: plan count maps to CD % (pre-GST) per policy. */
+const TRADE_PAYMENT_OPTIONS = [
+  { plan: 1, label: 'Full payment', sub: '1 installment · 4% trade cash discount' },
+  { plan: 2, label: 'Half–half', sub: '2 installments · 3% trade cash discount' },
+  { plan: 3, label: 'Three payments', sub: '3 installments · 2% trade cash discount' },
+  { plan: 4, label: 'Four payments', sub: '4 installments · no trade cash discount' },
+] as const;
 
 const checkoutSchema = yup.object().shape({
   companyName: yup.string().required('Company Name is required'),
@@ -69,9 +78,21 @@ export const CheckoutScreen: React.FC = () => {
   const navigation = useNavigation();
   const dispatch = useDispatch();
   const items = useSelector((state: RootState) => state.cart.items);
+  const appliedPromo = useSelector((state: RootState) => state.cart.appliedPromo);
   const authUser = useSelector((state: RootState) => state.auth.user);
-  const [submitting, setSubmitting] = React.useState(false);
-  const [paymentMode, setPaymentMode] = React.useState<'CREDIT' | 'BANK' | 'GATEWAY'>('GATEWAY');
+  const [submitting, setSubmitting] = useState(false);
+  const [installmentPlan, setInstallmentPlan] = useState(1);
+  const [planPickerOpen, setPlanPickerOpen] = useState(false);
+  const [paySchedule, setPaySchedule] = useState<'FULL' | 'PARTIAL'>('FULL');
+  const [initialPaymentStr, setInitialPaymentStr] = useState('');
+
+  useFocusEffect(
+    useCallback(() => {
+      if (authUser?.role === 'customer') {
+        dispatch(refreshAuthProfileThunk()).catch(() => {});
+      }
+    }, [dispatch, authUser?.role])
+  );
 
   const {
     control,
@@ -94,17 +115,27 @@ export const CheckoutScreen: React.FC = () => {
     },
   });
 
-  const subtotal = items.reduce(
-    (sum, item) => sum + (item.unitPrice ?? item.product.pricing.basePrice ?? 0) * item.quantity,
-    0
-  );
+  const lineSubtotal = lineSubtotalFromItems(items);
   const originalSubtotal = items.reduce(
     (sum, item) => sum + (item.product.pricing.basePrice ?? 0) * item.quantity,
     0
   );
-  const totalDiscount = Math.max(0, originalSubtotal - subtotal);
-  const gstAmount = subtotal * 0.18;
-  const totalAmount = subtotal + gstAmount;
+  const totalDiscount = Math.max(0, originalSubtotal - lineSubtotal);
+  const promoDiscount = appliedPromo?.discountAmount ?? 0;
+  const segmentRaw = authUser?.customerSegment;
+  const segment: 'NEW' | 'REGULAR' | undefined =
+    typeof segmentRaw === 'string'
+      ? segmentRaw.trim().toUpperCase() === 'REGULAR'
+        ? 'REGULAR'
+        : segmentRaw.trim().toUpperCase() === 'NEW'
+          ? 'NEW'
+          : undefined
+      : undefined;
+  const allowPartial = authUser?.allowPartialPayment === true;
+  const selectedPlanOption =
+    TRADE_PAYMENT_OPTIONS.find((o) => o.plan === installmentPlan) ?? TRADE_PAYMENT_OPTIONS[0];
+  const priced = computeCartTotals(items, promoDiscount, installmentPlan, segment);
+  const { cashDiscountAmount, gstAmount, grandTotal: totalAmount, cashDiscountPercent } = priced;
 
   const clearServerCart = async () => {
     for (const item of items) {
@@ -145,48 +176,35 @@ export const CheckoutScreen: React.FC = () => {
         };
       });
 
+      const pricedSubmit = computeCartTotals(items, promoDiscount, installmentPlan, segment);
+      const grandTotal = Number(pricedSubmit.grandTotal.toFixed(2));
+
+      let initialPay: number | undefined;
+      if (paySchedule === 'PARTIAL' && allowPartial) {
+        const raw = parseFloat(initialPaymentStr.replace(/,/g, ''));
+        if (!Number.isFinite(raw) || raw <= 0 || raw >= grandTotal - 0.005) {
+          throw new Error('Enter an initial payment greater than zero and less than order total.');
+        }
+        initialPay = Number(raw.toFixed(2));
+      }
+
       const createOrderRes = await createPaymentOrderApi({
         customerId: authUser.roleId,
         items: orderPayloadItems,
-        totalAmount: Number(totalAmount.toFixed(2)),
-        paymentMode,
+        totalAmount: grandTotal,
+        paymentMode: 'CREDIT',
+        promoCode: appliedPromo?.code,
+        installmentPlanCount: pricedSubmit.plan,
+        ...(paySchedule === 'PARTIAL' && allowPartial && initialPay != null
+          ? {
+              paymentSchedule: 'PARTIAL' as const,
+              initialPaymentAmount: initialPay,
+            }
+          : { paymentSchedule: 'FULL' as const }),
       });
 
       if (!createOrderRes.success) {
         throw new Error(createOrderRes.message || 'Failed to place order');
-      }
-
-      const internalOrderId = createOrderRes.data?.orderId || createOrderRes.data?._id;
-      if (!internalOrderId) {
-        throw new Error('Order ID missing from response');
-      }
-
-      if (paymentMode === 'GATEWAY') {
-        const razorpayOrderId = createOrderRes.data?.razorpayOrderId;
-        if (!razorpayOrderId || !createOrderRes.data?.amount) {
-          throw new Error('Payment details missing for Razorpay.');
-        }
-        const paymentResult: any = await RazorpayCheckout.open({
-          key: RAZORPAY_KEY_ID,
-          amount: createOrderRes.data.amount,
-          currency: createOrderRes.data.currency || 'INR',
-          order_id: razorpayOrderId,
-          name: data.companyName,
-          description: `Order payment for ${data.companyName}`,
-          prefill: {
-            name: data.contactName,
-            email: data.email,
-            contact: data.contactPhone,
-          },
-          theme: { color: colors.primary },
-        });
-
-        await verifyPaymentApi({
-          razorpay_order_id: paymentResult.razorpay_order_id,
-          razorpay_payment_id: paymentResult.razorpay_payment_id,
-          razorpay_signature: paymentResult.razorpay_signature,
-          orderId: internalOrderId,
-        });
       }
 
       await clearServerCart();
@@ -269,17 +287,29 @@ export const CheckoutScreen: React.FC = () => {
           })}
           <View style={styles.summaryDivider} />
           <View style={styles.summaryRow}>
-            <Text style={styles.summaryLabel}>Subtotal</Text>
-            <Text style={styles.summaryValue}>₹{subtotal.toLocaleString()}</Text>
+            <Text style={styles.summaryLabel}>Subtotal (pre-GST)</Text>
+            <Text style={styles.summaryValue}>₹{lineSubtotal.toLocaleString()}</Text>
           </View>
           {totalDiscount > 0 && (
             <View style={styles.summaryRow}>
-              <Text style={styles.discountLabel}>Discount</Text>
+              <Text style={styles.discountLabel}>Volume / tier discount</Text>
               <Text style={styles.discountValue}>-₹{totalDiscount.toLocaleString()}</Text>
             </View>
           )}
+          {promoDiscount > 0 && (
+            <View style={styles.summaryRow}>
+              <Text style={styles.discountLabel}>Promo ({appliedPromo?.code})</Text>
+              <Text style={styles.discountValue}>-₹{promoDiscount.toLocaleString()}</Text>
+            </View>
+          )}
+          {cashDiscountAmount > 0 && (
+            <View style={styles.summaryRow}>
+              <Text style={styles.discountLabel}>Trade cash discount ({cashDiscountPercent}%)</Text>
+              <Text style={styles.discountValue}>-₹{cashDiscountAmount.toLocaleString()}</Text>
+            </View>
+          )}
           <View style={styles.summaryRow}>
-            <Text style={styles.summaryLabel}>Estimated GST (18%)</Text>
+            <Text style={styles.summaryLabel}>GST (18%)</Text>
             <Text style={styles.summaryValue}>₹{gstAmount.toLocaleString()}</Text>
           </View>
           <View style={[styles.summaryDivider, { backgroundColor: colors.border }]} />
@@ -294,33 +324,121 @@ export const CheckoutScreen: React.FC = () => {
           <Text style={styles.sectionTitle}>Business Details</Text>
         </View>
         <View style={[styles.card, styles.formCard]}>
-          <Text style={styles.inputLabel}>Payment Method</Text>
-          <View style={styles.paymentModeRow}>
-            <TouchableOpacity
-              style={[styles.paymentModeChip, paymentMode === 'GATEWAY' && styles.paymentModeChipActive]}
-              onPress={() => setPaymentMode('GATEWAY')}
-            >
-              <Text style={[styles.paymentModeText, paymentMode === 'GATEWAY' && styles.paymentModeTextActive]}>
-                Online (Razorpay)
+          <Text style={styles.inputLabel}>Payment</Text>
+          <Text style={styles.paymentInfo}>
+            Checkout is on your trade account only. Card and bank transfer options are not shown here; pay
+            against the invoice (e.g. NEFT/RTGS) per terms. Discounts follow your selected payment plan
+            (pre-GST), then GST is calculated on the reduced taxable value.
+          </Text>
+
+          {segment === 'REGULAR' && (
+            <>
+              <Text style={[styles.inputLabel, { marginTop: spacing.md }]}>Payment schedule</Text>
+              <Text style={styles.helperText}>
+                Choose full settlement or half–half (and other splits). Trade cash discount applies on the
+                taxable subtotal after promo, before GST.
               </Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[styles.paymentModeChip, paymentMode === 'CREDIT' && styles.paymentModeChipActive]}
-              onPress={() => setPaymentMode('CREDIT')}
-            >
-              <Text style={[styles.paymentModeText, paymentMode === 'CREDIT' && styles.paymentModeTextActive]}>
-                Credit
+              <TouchableOpacity
+                style={styles.dropdownField}
+                onPress={() => setPlanPickerOpen(true)}
+                activeOpacity={0.7}
+              >
+                <View style={styles.dropdownFieldInner}>
+                  <Text style={styles.dropdownLabel}>{selectedPlanOption.label}</Text>
+                  <Text style={styles.dropdownSub}>{selectedPlanOption.sub}</Text>
+                </View>
+                <Icon name="chevron-down" size={22} color={colors.textSecondary} />
+              </TouchableOpacity>
+              <Modal
+                visible={planPickerOpen}
+                transparent
+                animationType="fade"
+                onRequestClose={() => setPlanPickerOpen(false)}
+              >
+                <Pressable style={styles.modalOverlay} onPress={() => setPlanPickerOpen(false)}>
+                  <Pressable style={styles.modalSheet} onPress={(e) => e.stopPropagation()}>
+                    <Text style={styles.modalTitle}>How do you want to pay?</Text>
+                    {TRADE_PAYMENT_OPTIONS.map((opt) => (
+                      <TouchableOpacity
+                        key={opt.plan}
+                        style={[
+                          styles.modalOption,
+                          installmentPlan === opt.plan && styles.modalOptionActive,
+                        ]}
+                        onPress={() => {
+                          setInstallmentPlan(opt.plan);
+                          setPlanPickerOpen(false);
+                        }}
+                      >
+                        <Text
+                          style={[
+                            styles.modalOptionLabel,
+                            installmentPlan === opt.plan && styles.modalOptionLabelActive,
+                          ]}
+                        >
+                          {opt.label}
+                        </Text>
+                        <Text style={styles.modalOptionSub}>{opt.sub}</Text>
+                      </TouchableOpacity>
+                    ))}
+                  </Pressable>
+                </Pressable>
+              </Modal>
+            </>
+          )}
+
+          {segment !== 'REGULAR' && (
+            <View style={[styles.newCustomerNotice, { marginTop: spacing.md }]}>
+              <Icon name="info" size={18} color={colors.textSecondary} />
+              <Text style={styles.newCustomerNoticeText}>
+                Your account is tagged as <Text style={styles.newCustomerEm}>New</Text>. Checkout uses
+                standard terms without trade cash discount tiers. Ask your account manager to mark you as{' '}
+                <Text style={styles.newCustomerEm}>Regular</Text> to unlock full / half–half schedules and
+                CD on invoice.
               </Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[styles.paymentModeChip, paymentMode === 'BANK' && styles.paymentModeChipActive]}
-              onPress={() => setPaymentMode('BANK')}
-            >
-              <Text style={[styles.paymentModeText, paymentMode === 'BANK' && styles.paymentModeTextActive]}>
-                Bank Transfer
+            </View>
+          )}
+
+          {allowPartial && (
+            <>
+              <Text style={[styles.inputLabel, { marginTop: spacing.md }]}>Pay now vs on account</Text>
+              <Text style={styles.helperText}>
+                If enabled for your account, you can record an initial payment amount; we will follow up for
+                the balance.
               </Text>
-            </TouchableOpacity>
-          </View>
+              <View style={styles.paymentModeRow}>
+                <TouchableOpacity
+                  style={[styles.paymentModeChip, paySchedule === 'FULL' && styles.paymentModeChipActive]}
+                  onPress={() => setPaySchedule('FULL')}
+                >
+                  <Text
+                    style={[styles.paymentModeText, paySchedule === 'FULL' && styles.paymentModeTextActive]}
+                  >
+                    Full on account
+                  </Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.paymentModeChip, paySchedule === 'PARTIAL' && styles.paymentModeChipActive]}
+                  onPress={() => setPaySchedule('PARTIAL')}
+                >
+                  <Text
+                    style={[styles.paymentModeText, paySchedule === 'PARTIAL' && styles.paymentModeTextActive]}
+                  >
+                    Part now
+                  </Text>
+                </TouchableOpacity>
+              </View>
+              {paySchedule === 'PARTIAL' && (
+                <AppInput
+                  label="Amount paying now (₹)"
+                  placeholder="e.g. 50000"
+                  value={initialPaymentStr}
+                  onChangeText={setInitialPaymentStr}
+                  keyboardType="decimal-pad"
+                />
+              )}
+            </>
+          )}
           <Controller
             control={control}
             name="companyName"
@@ -513,7 +631,7 @@ export const CheckoutScreen: React.FC = () => {
           </Text>
         </View>
         <AppButton
-          title={paymentMode === 'GATEWAY' ? 'Confirm & Pay' : 'Place Order'}
+          title="Place order"
           onPress={handleSubmit(onSubmit)}
           style={styles.checkoutButton}
           loading={submitting}
@@ -672,6 +790,95 @@ const styles = StyleSheet.create({
     color: colors.primary,
     fontWeight: fontWeight.bold,
   },
+  paymentInfo: {
+    fontSize: 13,
+    color: colors.textSecondary,
+    lineHeight: 20,
+    marginBottom: spacing.sm,
+  },
+  helperText: {
+    fontSize: 12,
+    color: colors.textSecondary,
+    marginBottom: spacing.sm,
+    lineHeight: 18,
+  },
+  dropdownField: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: 12,
+    paddingHorizontal: spacing.md,
+    paddingVertical: 12,
+    backgroundColor: colors.background,
+    marginBottom: spacing.md,
+  },
+  dropdownFieldInner: { flex: 1, paddingRight: spacing.sm },
+  dropdownLabel: {
+    fontSize: fontSize.base,
+    fontWeight: fontWeight.bold,
+    color: colors.text,
+    marginBottom: 4,
+  },
+  dropdownSub: { fontSize: 12, color: colors.textSecondary, lineHeight: 17 },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.45)',
+    justifyContent: 'flex-end',
+  },
+  modalSheet: {
+    backgroundColor: colors.surface,
+    borderTopLeftRadius: 16,
+    borderTopRightRadius: 16,
+    paddingHorizontal: spacing.lg,
+    paddingTop: spacing.lg,
+    paddingBottom: Platform.OS === 'ios' ? 36 : spacing.xl,
+    maxHeight: '70%',
+  },
+  modalTitle: {
+    fontSize: fontSize.lg,
+    fontWeight: fontWeight.bold,
+    color: colors.text,
+    marginBottom: spacing.md,
+  },
+  modalOption: {
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: 12,
+    padding: spacing.md,
+    marginBottom: spacing.sm,
+    backgroundColor: colors.background,
+  },
+  modalOptionActive: {
+    borderColor: colors.primary,
+    backgroundColor: 'rgba(230, 126, 34, 0.08)',
+  },
+  modalOptionLabel: {
+    fontSize: fontSize.base,
+    fontWeight: fontWeight.bold,
+    color: colors.text,
+    marginBottom: 4,
+  },
+  modalOptionLabelActive: { color: colors.primary },
+  modalOptionSub: { fontSize: 12, color: colors.textSecondary, lineHeight: 17 },
+  newCustomerNotice: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: spacing.sm,
+    padding: spacing.md,
+    borderRadius: 12,
+    backgroundColor: 'rgba(0,0,0,0.04)',
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  newCustomerNoticeText: {
+    flex: 1,
+    fontSize: 13,
+    color: colors.textSecondary,
+    lineHeight: 20,
+  },
+  newCustomerEm: { fontWeight: fontWeight.bold, color: colors.text },
   totalLabel: {
     fontSize: fontSize.lg,
     fontWeight: fontWeight.bold,
