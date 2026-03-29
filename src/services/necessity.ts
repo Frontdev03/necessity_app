@@ -67,6 +67,15 @@ export function setAuthTokenGetter(getter: () => string | null): void {
   authTokenGetter = getter;
 }
 
+/** Raw JWT only (no "Bearer " prefix); empty if missing. */
+function bearerTokenFromGetter(): string | null {
+  const raw = authTokenGetter?.() ?? null;
+  if (raw == null || typeof raw !== 'string') return null;
+  const trimmed = raw.trim();
+  if (!trimmed) return null;
+  return trimmed.replace(/^Bearer\s+/i, '');
+}
+
 export async function necessityFormRequest<T>(
   path: string,
   options: RequestInit & { body: FormData } = {} as RequestInit & { body: FormData }
@@ -76,7 +85,7 @@ export async function necessityFormRequest<T>(
 
   const headers: any = { ...options.headers };
   delete (headers as Record<string, unknown>)['Content-Type'];
-  const token = authTokenGetter?.() ?? null;
+  const token = bearerTokenFromGetter();
   if (token) {
     (headers as Record<string, string>)['Authorization'] = `Bearer ${token}`;
   }
@@ -98,7 +107,7 @@ export async function necessityFormRequest<T>(
 
     const data = await response.json().catch(() => ({}));
 
-    console.log('data', data)
+    if (__DEV__) console.log('Form response:', response.status, data);
 
     if (!response.ok) {
       const necessityErr: NecessityError = new Error(
@@ -145,7 +154,7 @@ export async function necessityRequest<T>(
   const url = `${NECESSITY_BASE_URL.replace(/\/$/, '')}/${path.replace(/^\//, '')}`;
 
   const headers: any = { ...defaultHeaders, ...options.headers };
-  const token = authTokenGetter?.() ?? null;
+  const token = bearerTokenFromGetter();
   if (token) {
     (headers as Record<string, string>)['Authorization'] = `Bearer ${token}`;
   }
@@ -154,9 +163,13 @@ export async function necessityRequest<T>(
   const timeoutId = setTimeout(() => controller.abort(), 30000);
 
   try {
-    console.log('Request URL:', url);
-    console.log('Request options:', { ...rest, headers, body });
-    console.log('Request body:', JSON.stringify(body));
+    if (__DEV__) {
+      const safeHeaders = { ...headers };
+      if (safeHeaders.Authorization) safeHeaders.Authorization = 'Bearer <redacted>';
+      console.log('Request URL:', url);
+      console.log('Request options:', { ...rest, headers: safeHeaders, body });
+      console.log('Request body:', JSON.stringify(body));
+    }
     const response = await fetch(url, {
       ...rest,
       signal: controller.signal,
@@ -168,7 +181,7 @@ export async function necessityRequest<T>(
 
     const data = await response.json().catch(() => ({}));
 
-    console.log(data, "----")
+    if (__DEV__) console.log('Response:', response.status, data);
 
     if (!response.ok) {
       const necessityErr: NecessityError = new Error(

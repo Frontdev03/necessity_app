@@ -54,7 +54,7 @@ export interface ApiProduct {
     status: string;
     pricing: {
         unit: string;
-        basePrice: number;
+        basePrice: number | null;
         moq: number;
     };
     inventory: {
@@ -100,7 +100,7 @@ export interface ApiProductVariant {
     skuCode: string;
     attributes?: Record<string, string | number>;
     uom: string;
-    basePrice: number;
+    basePrice: number | null;
     moq: number;
     isActive: boolean;
     volumePricing?: {

@@ -74,10 +74,10 @@ export const updateUserThunk = createAsyncThunk(
 
     const updatedUser = await updateUserNecessity(user.uuid, payload);
 
-    if (token && refreshToken) {
+    if (token) {
       await setStoredAuth({
         token,
-        refresh_token: refreshToken,
+        refresh_token: refreshToken ?? undefined,
         user: updatedUser,
       });
     }

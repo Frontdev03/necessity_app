@@ -12,17 +12,12 @@ import { Provider } from 'react-redux';
 import { NavigationContainer } from '@react-navigation/native';
 import { store } from 'src/store';
 import { hydrateAuthThunk } from 'src/store/authSlice';
-import { setAuthTokenGetter } from 'src/services/necessity';
 import { RootNavigator } from 'src/navigation/RootNavigator';
 import { colors } from 'src/theme/colors';
 
 function App(): React.JSX.Element {
   useEffect(() => {
-    const init = async () => {
-      await store.dispatch(hydrateAuthThunk());
-      setAuthTokenGetter(() => store.getState().auth.token);
-    };
-    init();
+    store.dispatch(hydrateAuthThunk());
   }, []);
 
   return (

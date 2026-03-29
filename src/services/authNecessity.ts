@@ -67,7 +67,10 @@ export async function login(payload: LoginPayload): Promise<AuthData> {
     body: payload,
   });
 
-  const { user, token } = response.data;
+  const { user, token: rawToken } = response.data;
+  const token = String(rawToken ?? '')
+    .trim()
+    .replace(/^Bearer\s+/i, '');
 
   // Map to compatible User object
   const mappedUser: AuthData['user'] = {
@@ -85,15 +88,8 @@ export async function login(payload: LoginPayload): Promise<AuthData> {
 }
 
 
-interface LogoutNecessityResponse {
-  success: boolean;
-  message: string;
-}
-
 export async function logout(): Promise<void> {
-  await necessityRequest<LogoutNecessityResponse>('/necessity/v1/auth/logout', {
-    method: 'POST',
-  });
+  // Necessity B2B API has no server-side session revoke; local token is cleared in logoutThunk.
 }
 
 export interface ChangePasswordPayload {

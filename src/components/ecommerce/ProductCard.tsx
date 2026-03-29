@@ -49,7 +49,11 @@ export const ProductCard: React.FC<Props> = ({ product, onPress, onAddToCart }) 
             </TouchableOpacity>
             <View style={styles.footer}>
                 <View>
-                    <Text style={styles.price}>₹{product.pricing.basePrice.toLocaleString()}</Text>
+                    <Text style={styles.price}>
+                        {product.pricing.basePrice != null
+                            ? `₹${product.pricing.basePrice.toLocaleString()}`
+                            : '—'}
+                    </Text>
                     <Text style={styles.minOrder}>Min: {product.pricing.moq} {product.pricing.unit}</Text>
                 </View>
                 <TouchableOpacity

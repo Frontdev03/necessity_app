@@ -94,8 +94,14 @@ export const CheckoutScreen: React.FC = () => {
     },
   });
 
-  const subtotal = items.reduce((sum, item) => sum + (item.unitPrice ?? item.product.pricing.basePrice) * item.quantity, 0);
-  const originalSubtotal = items.reduce((sum, item) => sum + item.product.pricing.basePrice * item.quantity, 0);
+  const subtotal = items.reduce(
+    (sum, item) => sum + (item.unitPrice ?? item.product.pricing.basePrice ?? 0) * item.quantity,
+    0
+  );
+  const originalSubtotal = items.reduce(
+    (sum, item) => sum + (item.product.pricing.basePrice ?? 0) * item.quantity,
+    0
+  );
   const totalDiscount = Math.max(0, originalSubtotal - subtotal);
   const gstAmount = subtotal * 0.18;
   const totalAmount = subtotal + gstAmount;
@@ -118,8 +124,8 @@ export const CheckoutScreen: React.FC = () => {
     setSubmitting(true);
     try {
       const orderPayloadItems = items.map((item) => {
-        const unitPrice = item.unitPrice ?? item.product.pricing.basePrice;
-        const basePrice = item.product.pricing.basePrice;
+        const unitPrice = item.unitPrice ?? item.product.pricing.basePrice ?? 0;
+        const basePrice = item.product.pricing.basePrice ?? 0;
         const discountPerUnit = Math.max(0, basePrice - unitPrice);
         return {
           productId: item.product._id,
@@ -237,7 +243,9 @@ export const CheckoutScreen: React.FC = () => {
           <Text style={styles.sectionTitle}>Order Summary</Text>
         </View>
         <View style={styles.card}>
-          {items.map((item) => (
+          {items.map((item) => {
+            const effectiveUnit = item.unitPrice ?? item.product.pricing.basePrice;
+            return (
             <View key={item.lineId} style={styles.summaryRow}>
               <Image
                 source={{ uri: item.product.media.images[0]?.url || 'https://via.placeholder.com/150' }}
@@ -249,15 +257,16 @@ export const CheckoutScreen: React.FC = () => {
                   {item.product.basicInfo.name}
                 </Text>
                 <Text style={styles.itemMeta}>
-                  Qty: {item.quantity} • ₹
-                  {(item.unitPrice ?? item.product.pricing.basePrice).toLocaleString()}/unit
+                  Qty: {item.quantity} •{' '}
+                  {effectiveUnit != null ? `₹${effectiveUnit.toLocaleString()}` : '—'}/unit
                 </Text>
               </View>
               <Text style={styles.itemTotal}>
-                ₹{((item.unitPrice ?? item.product.pricing.basePrice) * item.quantity).toLocaleString()}
+                ₹{((effectiveUnit ?? 0) * item.quantity).toLocaleString()}
               </Text>
             </View>
-          ))}
+            );
+          })}
           <View style={styles.summaryDivider} />
           <View style={styles.summaryRow}>
             <Text style={styles.summaryLabel}>Subtotal</Text>

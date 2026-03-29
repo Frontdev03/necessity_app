@@ -241,12 +241,20 @@ export const ProductDetailScreen: React.FC = () => {
                     <View style={styles.pricingCard}>
                         <View style={styles.priceRow}>
                             <Text style={styles.priceLabel}>Wholesale Price</Text>
-                            <Text style={styles.priceValue}>₹{displayUnitPrice.toLocaleString()}</Text>
+                            <Text style={styles.priceValue}>
+                                {displayUnitPrice != null
+                                    ? `₹${displayUnitPrice.toLocaleString()}`
+                                    : '—'}
+                            </Text>
                         </View>
-                        {displayUnitPrice < basePrice && (
+                        {displayUnitPrice != null &&
+                            basePrice != null &&
+                            displayUnitPrice < basePrice && (
                             <View style={styles.priceRow}>
                                 <Text style={styles.priceLabel}>Base Price</Text>
-                                <Text style={[styles.priceValue, styles.retailPrice]}>₹{basePrice.toLocaleString()}</Text>
+                                <Text style={[styles.priceValue, styles.retailPrice]}>
+                                    ₹{basePrice.toLocaleString()}
+                                </Text>
                             </View>
                         )}
                         <View style={styles.divider} />

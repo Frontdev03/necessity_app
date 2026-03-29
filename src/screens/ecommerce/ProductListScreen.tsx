@@ -20,7 +20,15 @@ export const ProductListScreen: React.FC = () => {
 
     const handleAddToCart = async (product: ApiProduct, quantity: number) => {
         try {
-            const res = await addToCartApi({ productId: product._id, quantity });
+            const soleVariantId =
+                product.hasVariants && product.variants?.length === 1
+                    ? product.variants[0]._id
+                    : undefined;
+            const res = await addToCartApi({
+                productId: product._id,
+                quantity,
+                ...(soleVariantId ? { variantId: soleVariantId } : {}),
+            });
             if (res.success) {
                 dispatch(addItem({ product, quantity }));
                 Toast.show({

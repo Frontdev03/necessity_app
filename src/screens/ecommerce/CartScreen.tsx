@@ -52,8 +52,14 @@ export const CartScreen: React.FC = () => {
     }, [dispatch])
   );
 
-  const subtotal = items.reduce((sum, item) => sum + (item.unitPrice ?? item.product.pricing.basePrice) * item.quantity, 0);
-  const originalSubtotal = items.reduce((sum, item) => sum + item.product.pricing.basePrice * item.quantity, 0);
+  const subtotal = items.reduce(
+    (sum, item) => sum + (item.unitPrice ?? item.product.pricing.basePrice ?? 0) * item.quantity,
+    0
+  );
+  const originalSubtotal = items.reduce(
+    (sum, item) => sum + (item.product.pricing.basePrice ?? 0) * item.quantity,
+    0
+  );
   const totalDiscount = Math.max(0, originalSubtotal - subtotal);
   const gstAmount = subtotal * 0.18;
   const totalAmount = subtotal + gstAmount;
@@ -165,7 +171,10 @@ export const CartScreen: React.FC = () => {
         contentContainerStyle={styles.scrollContent}
       >
         <View style={styles.card}>
-          {items.map((item) => (
+          {items.map((item) => {
+            const effectiveUnit = item.unitPrice ?? item.product.pricing.basePrice;
+            const listBase = item.product.pricing.basePrice;
+            return (
             <View
               key={item.lineId}
               style={[
@@ -184,9 +193,13 @@ export const CartScreen: React.FC = () => {
                 <Text style={styles.itemName} numberOfLines={2}>
                   {item.product.basicInfo.name}
                 </Text>
-                <Text style={styles.itemMeta}>₹{(item.unitPrice ?? item.product.pricing.basePrice).toLocaleString()}/unit</Text>
-                {(item.unitPrice ?? item.product.pricing.basePrice) < item.product.pricing.basePrice && (
-                  <Text style={styles.itemOriginalPrice}>MRP ₹{item.product.pricing.basePrice.toLocaleString()}</Text>
+                <Text style={styles.itemMeta}>
+                  {effectiveUnit != null ? `₹${effectiveUnit.toLocaleString()}` : '—'}/unit
+                </Text>
+                {listBase != null &&
+                  effectiveUnit != null &&
+                  effectiveUnit < listBase && (
+                  <Text style={styles.itemOriginalPrice}>MRP ₹{listBase.toLocaleString()}</Text>
                 )}
                 <View style={styles.qtyRow}>
                   <View style={styles.qtyControls}>
@@ -241,10 +254,11 @@ export const CartScreen: React.FC = () => {
                 </View>
               </View>
               <Text style={styles.itemTotal}>
-                ₹{((item.unitPrice ?? item.product.pricing.basePrice) * item.quantity).toLocaleString()}
+                ₹{((effectiveUnit ?? 0) * item.quantity).toLocaleString()}
               </Text>
             </View>
-          ))}
+            );
+          })}
 
           <View style={styles.summaryDivider} />
           <View style={styles.summaryRow}>
