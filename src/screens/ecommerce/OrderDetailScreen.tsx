@@ -12,7 +12,14 @@ import Icon from 'react-native-vector-icons/Feather';
 import { colors } from 'src/theme/colors';
 import { spacing } from 'src/theme/spacing';
 import { fontSize, fontWeight } from 'src/theme/fonts';
-import { getOrderByIdApi, type CustomerOrder } from 'src/services/ecommerceNecessity';
+import {
+  getOrderByIdApi,
+  verifyPaymentApi,
+  type CustomerOrder,
+} from 'src/services/ecommerceNecessity';
+import RazorpayCheckout from 'react-native-razorpay';
+import { RAZORPAY_KEY_ID } from 'src/config/necessity';
+import Toast from 'react-native-toast-message';
 
 export const OrderDetailScreen: React.FC = () => {
   const route = useRoute<any>();
@@ -21,24 +28,70 @@ export const OrderDetailScreen: React.FC = () => {
   const [order, setOrder] = useState<CustomerOrder | null>(null);
   const [loading, setLoading] = useState(true);
 
+  const loadOrder = async () => {
+    setLoading(true);
+    try {
+      const res = await getOrderByIdApi(orderId);
+      if (res.success) setOrder(res.data);
+    } catch {
+      setOrder(null);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   useEffect(() => {
-    let active = true;
-    const loadOrder = async () => {
-      setLoading(true);
-      try {
-        const res = await getOrderByIdApi(orderId);
-        if (active && res.success) setOrder(res.data);
-      } catch {
-        if (active) setOrder(null);
-      } finally {
-        if (active) setLoading(false);
-      }
-    };
     if (orderId) loadOrder();
-    return () => {
-      active = false;
-    };
   }, [orderId]);
+
+  const handlePayNow = async () => {
+    if (!order || !order.razorpayOrderId) {
+      Toast.show({ type: 'error', text1: 'Error', text2: 'Online payment not initialized for this order.' });
+      return;
+    }
+
+    const options = {
+      description: `Payment for Order ${order.orderNumber}`,
+      image: 'https://via.placeholder.com/150',
+      currency: 'INR',
+      key: RAZORPAY_KEY_ID,
+      amount: Math.round((order.totalAmount ?? 0) * 100), // simplistic; in real app might sub initial payment
+      name: 'Necessity India',
+      order_id: order.razorpayOrderId,
+      prefill: {
+        email: order.customerId?.email || '',
+        contact: order.customerId?.phone || '',
+        name: order.customerId?.name || '',
+      },
+      theme: { color: colors.primary },
+    };
+
+    try {
+      const rzpData = await RazorpayCheckout.open(options);
+      
+      Toast.show({ type: 'info', text1: 'Processing', text2: 'Verifying payment...' });
+      
+      const verifyRes = await verifyPaymentApi({
+        razorpay_order_id: rzpData.razorpay_order_id,
+        razorpay_payment_id: rzpData.razorpay_payment_id,
+        razorpay_signature: rzpData.razorpay_signature,
+        orderId: order._id,
+      });
+
+      if (verifyRes.success) {
+        Toast.show({ type: 'success', text1: 'Success', text2: 'Payment verified!' });
+        loadOrder(); // Refresh data
+      } else {
+        throw new Error(verifyRes.message || 'Verification failed.');
+      }
+    } catch (err: any) {
+      Toast.show({
+        type: 'error',
+        text1: 'Payment Failed',
+        text2: err.description || err.message || 'Could not complete payment.',
+      });
+    }
+  };
 
   if (loading) {
     return (
@@ -78,8 +131,8 @@ export const OrderDetailScreen: React.FC = () => {
       bgColor = 'rgba(46, 204, 113, 0.1)';
       textColor = colors.success;
     } else if (normalized === 'PROCESSING' || normalized === 'SHIPPED' || normalized === 'CONFIRMED' || normalized === 'PENDING') {
-      bgColor = 'rgba(52, 152, 219, 0.1)';
-      textColor = '#3498db';
+      bgColor = 'rgba(247, 174, 107, 0.22)';
+      textColor = colors.primaryDark;
     } else if (normalized === 'CANCELLED') {
       bgColor = 'rgba(231, 76, 60, 0.1)';
       textColor = colors.error;
@@ -169,6 +222,17 @@ export const OrderDetailScreen: React.FC = () => {
               <Text style={styles.grandTotalValue}>₹{Number(order.totals?.grandTotal ?? order.totalAmount ?? 0).toLocaleString()}</Text>
             </View>
           </View>
+
+          {order.paymentMode === 'GATEWAY' && order.paymentStatus !== 'SUCCESS' && (
+            <TouchableOpacity 
+              style={styles.payNowButton} 
+              onPress={handlePayNow}
+              activeOpacity={0.8}
+            >
+              <Icon name="credit-card" size={20} color={colors.surface} />
+              <Text style={styles.payNowText}>Pay Online Now</Text>
+            </TouchableOpacity>
+          )}
         </View>
       </ScrollView>
     </View>
@@ -313,7 +377,7 @@ const styles = StyleSheet.create({
     color: colors.primary,
   },
   totalsCard: {
-    backgroundColor: '#f8fafc',
+    backgroundColor: colors.surfaceMuted,
     borderRadius: 8,
     padding: spacing.lg,
     borderWidth: 1,
@@ -349,5 +413,25 @@ const styles = StyleSheet.create({
     fontSize: fontSize.xl,
     fontWeight: fontWeight.bold,
     color: colors.primary,
+  },
+  payNowButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.primary,
+    borderRadius: 8,
+    paddingVertical: 14,
+    marginTop: spacing.xl,
+    gap: 8,
+    shadowColor: colors.primary,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 6,
+    elevation: 4,
+  },
+  payNowText: {
+    color: colors.surface,
+    fontSize: fontSize.base,
+    fontWeight: fontWeight.bold,
   },
 });

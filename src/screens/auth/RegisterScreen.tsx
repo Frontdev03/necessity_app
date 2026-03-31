@@ -350,7 +350,7 @@ const styles = StyleSheet.create({
     infoSection: {
         flexDirection: 'row',
         alignItems: 'center',
-        backgroundColor: '#F0F7FF',
+        backgroundColor: 'rgba(228, 214, 198, 0.45)',
         padding: spacing.md,
         borderRadius: 8,
         marginTop: spacing.xl,

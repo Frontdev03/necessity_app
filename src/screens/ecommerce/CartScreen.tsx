@@ -76,7 +76,7 @@ export const CartScreen: React.FC = () => {
   const totalDiscount = Math.max(0, originalSubtotal - lineSubtotal);
   const promoDiscount = appliedPromo?.discountAmount ?? 0;
   const segment = authUser?.customerSegment;
-  const priced = computeCartTotals(items, promoDiscount, 1, segment);
+  const priced = computeCartTotals(items, promoDiscount, 4, segment);
   const { cashDiscountAmount, gstAmount, grandTotal: totalAmount, cashDiscountPercent } = priced;
 
   const [updatingId, setUpdatingId] = useState<string | null>(null);
@@ -372,12 +372,7 @@ export const CartScreen: React.FC = () => {
               <Text style={styles.discountValue}>-₹{promoDiscount.toLocaleString()}</Text>
             </View>
           )}
-          {cashDiscountAmount > 0 && (
-            <View style={styles.summaryRow}>
-              <Text style={styles.discountLabel}>Est. trade cash discount ({cashDiscountPercent}%)</Text>
-              <Text style={styles.discountValue}>-₹{cashDiscountAmount.toLocaleString()}</Text>
-            </View>
-          )}
+
           <View style={styles.summaryRow}>
             <Text style={styles.summaryLabel}>Estimated GST (18%)</Text>
             <Text style={styles.summaryValue}>
@@ -477,7 +472,7 @@ const styles = StyleSheet.create({
     width: 72,
     height: 72,
     borderRadius: 10,
-    backgroundColor: '#f0f0f0',
+    backgroundColor: colors.surfaceMuted,
     marginRight: spacing.md,
     borderWidth: 1,
     borderColor: colors.border,
@@ -507,7 +502,7 @@ const styles = StyleSheet.create({
   qtyControls: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#f5f7fa',
+    backgroundColor: colors.surfaceMuted,
     borderRadius: 8,
     borderWidth: 1,
     borderColor: colors.border,
@@ -624,7 +619,7 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     borderWidth: 1,
     borderColor: colors.primary,
-    backgroundColor: 'rgba(230, 126, 34, 0.08)',
+    backgroundColor: 'rgba(243, 119, 50, 0.1)',
   },
   promoApplyDisabled: { opacity: 0.6 },
   promoApplyText: {

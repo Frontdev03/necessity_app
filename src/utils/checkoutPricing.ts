@@ -12,20 +12,27 @@ function segmentIsRegular(segment: 'NEW' | 'REGULAR' | undefined): boolean {
   return String(segment).trim().toUpperCase() === 'REGULAR';
 }
 
-/** Mirrors backend `cashDiscountPercentForPlan` (trade policy). */
+/**
+ * Trade cash discount (CD) by payment timeline tier (Necessity policy).
+ * CD applies on invoice value before GST.
+ * Plan 5 = immediate payment (5%); 1–4 = within 3 / 10 / 20 / 30 (std) days.
+ * Mirrors backend `cashDiscountPercentForPlan` (plans 1–5).
+ */
 export function cashDiscountPercentForPlan(
   plan: number,
   segment: 'NEW' | 'REGULAR' | undefined
 ): number {
   if (!segmentIsRegular(segment)) return 0;
   switch (plan) {
-    case 1:
+    case 5: // immediate / pay now
+      return 5;
+    case 1: // within 3 days
       return 4;
-    case 2:
+    case 2: // within 10 days
       return 3;
-    case 3:
+    case 3: // within 20 days
       return 2;
-    case 4:
+    case 4: // 30 days standard
       return 0;
     default:
       return 0;
@@ -41,7 +48,7 @@ export function computeCartTotals(
   const lineSubtotal = lineSubtotalFromItems(items);
   const subAfterPromo = Math.max(0, Number((lineSubtotal - promoDiscount).toFixed(2)));
   const plan = segmentIsRegular(segment)
-    ? Math.min(4, Math.max(1, Math.round(installmentPlanCount) || 1))
+    ? Math.min(5, Math.max(1, Math.round(installmentPlanCount) || 1))
     : 1;
   const cdPct = cashDiscountPercentForPlan(plan, segment);
   const cashDiscountAmount = Number(((subAfterPromo * cdPct) / 100).toFixed(2));

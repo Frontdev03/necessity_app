@@ -1,27 +1,36 @@
 /**
- * NECESSITY B2B Ecommerce Platform
- * Government-grade color palette
+ * NECESSITY — mobile palette aligned with admin-frontend (`admin-frontend/src/index.css` @theme).
  */
 
 export const colors = {
-  primary: '#163E6D',
-  primaryDark: '#0F2A4A',
-  secondary: '#214E84',
-  accent: '#F59E0B',
-  accentLight: '#FBBF24',
-  background: '#F4F7FB',
+  /** Deep orange — primary actions, links, tab active */
+  primary: '#F37732',
+  /** Darker orange — pressed states */
+  primaryDark: '#D9631C',
+  /** Dark grey — secondary filled buttons (white label) */
+  secondary: '#454546',
+  /** Light orange — highlights, emphasis text, splash accent ring */
+  accent: '#F7AE6B',
+  accentLight: '#FAD4A8',
+  /** Admin near-white */
+  background: '#FEFEFE',
   surface: '#FFFFFF',
-  text: '#1F2937',
-  textSecondary: '#6B7280',
-  border: '#E5E7EB',
+  /** Warm neutral wells (image placeholders, quantity rows, icon buttons) */
+  surfaceMuted: '#F7F3EF',
+  /** Admin dark grey — primary text */
+  text: '#454546',
+  /** Admin medium grey — secondary text */
+  textSecondary: '#929293',
+  /** Admin light beige — borders, subtle separators */
+  border: '#E4D6C6',
+  lightBeige: '#E4D6C6',
   error: '#DC2626',
   success: '#059669',
-  white: '#FFFFFF',
+  white: '#FEFEFE',
   black: '#000000',
-  /** Bottom tab bar – white bar, dark blue active, dark gray inactive */
   tabBarBackground: '#FFFFFF',
-  tabBarActive: '#0A346E',
-  tabBarInactive: '#333333',
+  tabBarActive: '#F37732',
+  tabBarInactive: '#929293',
 } as const;
 
 export type ColorKey = keyof typeof colors;

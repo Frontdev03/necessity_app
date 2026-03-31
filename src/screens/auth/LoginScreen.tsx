@@ -219,7 +219,7 @@ const styles = StyleSheet.create({
     marginTop: spacing.sm,
     paddingHorizontal: spacing.md,
     paddingVertical: spacing.xs,
-    backgroundColor: '#E5E7EB',
+    backgroundColor: colors.surfaceMuted,
     borderRadius: 20,
   },
   badgeIcon: {
@@ -280,7 +280,7 @@ const styles = StyleSheet.create({
   securityNotice: {
     flexDirection: 'row',
     alignItems: 'flex-start',
-    backgroundColor: '#E8EEF5',
+    backgroundColor: 'rgba(228, 214, 198, 0.45)',
     borderRadius: 8,
     padding: spacing.md,
     paddingHorizontal: spacing.base,

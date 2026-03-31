@@ -93,7 +93,7 @@ const styles = StyleSheet.create({
     image: {
         width: '100%',
         height: 120,
-        backgroundColor: '#f0f0f0',
+        backgroundColor: colors.surfaceMuted,
     },
     category: {
         fontSize: 10,

@@ -271,12 +271,22 @@ export const ProductDetailScreen: React.FC = () => {
                         <Text style={styles.stockText}>{product.inventory.stockQuantity > 0 ? 'In Stock' : 'Out of Stock'}</Text>
                     </View>
 
+                    {/* Variants Selection */}
                     {isVariantProduct(product) && (product.variants || []).length > 0 && (
-                        <>
-                            <Text style={styles.sectionTitle}>Variants</Text>
+                        <View style={styles.variantsSection}>
+                            <View style={styles.sectionHeader}>
+                                <Icon name="layers" size={18} color={colors.text} />
+                                <Text style={[styles.sectionTitle, { marginBottom: 0, marginLeft: 8 }]}>Select Variant</Text>
+                            </View>
                             <View style={styles.variantWrap}>
                                 {(product.variants || []).map((variant) => {
                                     const active = selectedVariant?._id === variant._id;
+                                    const variantLabel = variant.skuCode || `Variant ${variant._id.slice(-4)}`;
+                                    // Optionally show attributes if present
+                                    const attrLabel = variant.attributes 
+                                        ? Object.values(variant.attributes).filter(Boolean).join(' / ')
+                                        : '';
+                                    
                                     return (
                                         <TouchableOpacity
                                             key={variant._id}
@@ -287,26 +297,55 @@ export const ProductDetailScreen: React.FC = () => {
                                             }}
                                         >
                                             <Text style={[styles.variantChipText, active && styles.variantChipTextActive]}>
-                                                {variant.skuCode}
+                                                {attrLabel || variantLabel}
                                             </Text>
+                                            {active && <View style={styles.activeDot} />}
                                         </TouchableOpacity>
                                     );
                                 })}
                             </View>
+
+                            {/* Pricing Tiers / Volume Discounts */}
                             {!!selectedVariant?.volumePricing?.priceBreakpoints?.length && (
-                                <View style={styles.tierCard}>
-                                    <Text style={styles.tierTitle}>Pricing Tiers</Text>
-                                    {selectedVariant.volumePricing.priceBreakpoints.map((b, idx) => (
-                                        <View key={`${idx}-${b.minQty}`} style={styles.tierRow}>
-                                            <Text style={styles.tierQty}>
-                                                {b.minQty}-{b.maxQty ?? 'above'}
-                                            </Text>
-                                            <Text style={styles.tierPrice}>₹{b.unitPrice.toLocaleString()}/unit</Text>
+                                <View style={styles.tierContainer}>
+                                    <View style={styles.tierHeader}>
+                                        <View style={styles.tierHeaderIcon}>
+                                            <Icon name="trending-down" size={14} color={colors.white} />
                                         </View>
-                                    ))}
+                                        <Text style={styles.tierTitle}>Volume Discounts</Text>
+                                    </View>
+                                    <View style={styles.tierTable}>
+                                        <View style={styles.tierTableRowHeader}>
+                                            <Text style={[styles.tierTableHead, { flex: 1.5 }]}>Quantity</Text>
+                                            <Text style={[styles.tierTableHead, { flex: 1 }]}>Price/Unit</Text>
+                                            <Text style={[styles.tierTableHead, { flex: 1, textAlign: 'right' }]}>Savings</Text>
+                                        </View>
+                                        {selectedVariant.volumePricing.priceBreakpoints.map((b, idx) => {
+                                            const savings = b.unitPrice < (selectedVariant.basePrice || 0) 
+                                                ? `${Math.round((1 - b.unitPrice / (selectedVariant.basePrice || 1)) * 100)}%`
+                                                : '-';
+                                            return (
+                                                <View key={`${idx}-${b.minQty}`} style={styles.tierTableRow}>
+                                                    <View style={{ flex: 1.5, flexDirection: 'row', alignItems: 'center' }}>
+                                                        <View style={styles.bullet} />
+                                                        <Text style={styles.tierQty}>
+                                                            {b.minQty}{b.maxQty ? `–${b.maxQty}` : '+'} units
+                                                        </Text>
+                                                    </View>
+                                                    <Text style={[styles.tierPrice, { flex: 1 }]}>₹{b.unitPrice.toLocaleString()}</Text>
+                                                    <View style={{ flex: 1, alignItems: 'flex-end' }}>
+                                                        <View style={[styles.savingsBadge, savings === '-' && { backgroundColor: 'transparent' }]}>
+                                                            <Text style={styles.savingsText}>{savings}</Text>
+                                                        </View>
+                                                    </View>
+                                                </View>
+                                            );
+                                        })}
+                                    </View>
+                                    <Text style={styles.tierNote}>Order more to unlock lower wholesale prices.</Text>
                                 </View>
                             )}
-                        </>
+                        </View>
                     )}
 
                     <Text style={styles.sectionTitle}>Specifications</Text>
@@ -372,11 +411,11 @@ const styles = StyleSheet.create({
     backButton: { width: 40, height: 40, justifyContent: 'center' },
     cartButton: { width: 40, height: 40, justifyContent: 'center', alignItems: 'flex-end' },
     scrollContent: { paddingBottom: spacing.xxxl },
-    image: { width: '100%', height: 300, backgroundColor: '#f0f0f0' },
+    image: { width: '100%', height: 300, backgroundColor: colors.surfaceMuted },
     detailsContainer: { padding: spacing.lg },
     categoryBadge: {
         alignSelf: 'flex-start',
-        backgroundColor: 'rgba(22, 62, 109, 0.1)',
+        backgroundColor: 'rgba(243, 119, 50, 0.12)',
         paddingHorizontal: 12,
         paddingVertical: 6,
         borderRadius: 16,
@@ -427,7 +466,7 @@ const styles = StyleSheet.create({
     quantityContainer: {
         flexDirection: 'row',
         alignItems: 'center',
-        backgroundColor: '#f5f7fa',
+        backgroundColor: colors.surfaceMuted,
         borderRadius: 8,
         borderWidth: 1,
         borderColor: colors.border,
@@ -436,28 +475,138 @@ const styles = StyleSheet.create({
     qtyButton: { width: 44, height: 44, justifyContent: 'center', alignItems: 'center' },
     qtyText: { width: 40, textAlign: 'center', fontSize: fontSize.lg, fontWeight: fontWeight.bold, color: colors.text },
     addButton: { flex: 1 },
-    variantWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm, marginBottom: spacing.lg },
-    variantChip: {
-        borderWidth: 1,
-        borderColor: colors.border,
-        borderRadius: 999,
-        paddingHorizontal: spacing.md,
-        paddingVertical: 8,
-        backgroundColor: colors.surface,
-    },
-    variantChipActive: { borderColor: colors.primary, backgroundColor: 'rgba(22, 62, 109, 0.08)' },
-    variantChipText: { fontSize: fontSize.sm, color: colors.textSecondary, fontWeight: fontWeight.medium },
-    variantChipTextActive: { color: colors.primary, fontWeight: fontWeight.bold },
-    tierCard: {
-        backgroundColor: colors.surface,
-        borderRadius: 12,
-        borderWidth: 1,
-        borderColor: colors.border,
-        padding: spacing.md,
+    variantsSection: {
         marginBottom: spacing.xl,
     },
-    tierTitle: { fontSize: fontSize.base, fontWeight: fontWeight.bold, color: colors.text, marginBottom: spacing.sm },
-    tierRow: { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 6 },
-    tierQty: { fontSize: fontSize.sm, color: colors.textSecondary },
-    tierPrice: { fontSize: fontSize.sm, fontWeight: fontWeight.bold, color: colors.primary },
+    sectionHeader: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        marginBottom: spacing.md,
+    },
+    variantWrap: {
+        flexDirection: 'row',
+        flexWrap: 'wrap',
+        marginBottom: spacing.md,
+    },
+    variantChip: {
+        paddingHorizontal: 16,
+        paddingVertical: 10,
+        borderRadius: 10,
+        backgroundColor: colors.surfaceMuted,
+        marginRight: 10,
+        marginBottom: 10,
+        borderWidth: 1.5,
+        borderColor: colors.border,
+        flexDirection: 'row',
+        alignItems: 'center',
+    },
+    variantChipActive: {
+        borderColor: colors.primary,
+        backgroundColor: colors.primary + '10',
+    },
+    variantChipText: {
+        fontSize: fontSize.sm,
+        color: colors.textSecondary,
+        fontWeight: fontWeight.medium,
+    },
+    variantChipTextActive: {
+        color: colors.primary,
+        fontWeight: fontWeight.bold,
+    },
+    activeDot: {
+        width: 6,
+        height: 6,
+        borderRadius: 3,
+        backgroundColor: colors.primary,
+        marginLeft: 8,
+    },
+    tierContainer: {
+        backgroundColor: colors.surface,
+        borderRadius: 16,
+        padding: spacing.md,
+        marginTop: spacing.sm,
+        borderWidth: 1,
+        borderColor: colors.border,
+    },
+    tierHeader: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        marginBottom: spacing.md,
+    },
+    tierHeaderIcon: {
+        backgroundColor: colors.primary,
+        width: 24,
+        height: 24,
+        borderRadius: 6,
+        justifyContent: 'center',
+        alignItems: 'center',
+        marginRight: 8,
+    },
+    tierTitle: {
+        fontSize: fontSize.sm,
+        fontWeight: fontWeight.bold,
+        color: colors.text,
+        textTransform: 'uppercase',
+        letterSpacing: 0.5,
+    },
+    tierNote: {
+        fontSize: 11,
+        color: colors.textSecondary,
+        fontStyle: 'italic',
+        marginTop: spacing.md,
+        textAlign: 'center',
+    },
+    tierTable: {
+        width: '100%',
+    },
+    tierTableRowHeader: {
+        flexDirection: 'row',
+        paddingBottom: 8,
+        borderBottomWidth: 1,
+        borderBottomColor: colors.border,
+        marginBottom: 8,
+    },
+    tierTableHead: {
+        fontSize: 11,
+        fontWeight: fontWeight.bold,
+        color: colors.textSecondary,
+        textTransform: 'uppercase',
+    },
+    tierTableRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        paddingVertical: 10,
+        borderBottomWidth: 1,
+        borderBottomColor: colors.border + '50',
+    },
+    bullet: {
+        width: 4,
+        height: 4,
+        borderRadius: 2,
+        backgroundColor: colors.primary,
+        marginRight: 8,
+    },
+    tierQty: {
+        fontSize: fontSize.sm,
+        color: colors.text,
+        fontWeight: fontWeight.medium,
+    },
+    tierPrice: {
+        fontSize: fontSize.sm,
+        fontWeight: fontWeight.bold,
+        color: colors.text,
+    },
+    savingsBadge: {
+        backgroundColor: '#E6FFFA',
+        paddingHorizontal: 8,
+        paddingVertical: 4,
+        borderRadius: 6,
+        borderWidth: 1,
+        borderColor: '#B2F5EA',
+    },
+    savingsText: {
+        fontSize: 11,
+        fontWeight: fontWeight.bold,
+        color: '#2C7A7B',
+    },
 });

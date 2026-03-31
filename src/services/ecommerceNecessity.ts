@@ -416,10 +416,11 @@ export async function verifyPaymentApi(
 export interface CustomerOrderLine {
     _id: string;
     productName?: string;
+    productId?: string | any; // Supports populated object or string ID
+    variantId?: string;
     quantity: number;
     unitPrice?: number;
     subtotal?: number;
-    productId?: { basicInfo?: { name?: string } };
 }
 
 export interface CustomerOrder {
@@ -428,6 +429,8 @@ export interface CustomerOrder {
     createdAt: string;
     workflowStatus?: string;
     paymentStatus?: string;
+    paymentMode?: string;
+    razorpayOrderId?: string;
     totals?: {
         subtotalAmount?: number;
         taxAmount?: number;
@@ -438,6 +441,8 @@ export interface CustomerOrder {
     customerId?: {
         businessName?: string;
         name?: string;
+        email?: string;
+        phone?: string;
     };
 }
 

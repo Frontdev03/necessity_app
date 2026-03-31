@@ -25,8 +25,8 @@ export const OrdersScreen: React.FC = () => {
       bgColor = 'rgba(46, 204, 113, 0.1)';
       textColor = colors.success;
     } else if (normalized === 'PROCESSING' || normalized === 'SHIPPED' || normalized === 'CONFIRMED' || normalized === 'PENDING') {
-      bgColor = 'rgba(52, 152, 219, 0.1)';
-      textColor = '#3498db';
+      bgColor = 'rgba(247, 174, 107, 0.22)';
+      textColor = colors.primaryDark;
     } else if (normalized === 'CANCELLED') {
       bgColor = 'rgba(231, 76, 60, 0.1)';
       textColor = colors.error;
@@ -257,7 +257,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'flex-end',
-    backgroundColor: '#f8fafc',
+    backgroundColor: colors.surfaceMuted,
     padding: spacing.sm,
     borderRadius: 8,
     marginTop: spacing.xs,

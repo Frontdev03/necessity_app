@@ -30,15 +30,39 @@ import {
   createPaymentOrderApi,
   removeFromCartApi,
   removeProductFromCartApi,
+  verifyPaymentApi,
 } from 'src/services/ecommerceNecessity';
 import { computeCartTotals, lineSubtotalFromItems } from 'src/utils/checkoutPricing';
+import RazorpayCheckout from 'react-native-razorpay';
+import { RAZORPAY_KEY_ID } from 'src/config/necessity';
 
-/** Regular trade accounts: plan count maps to CD % (pre-GST) per policy. */
-const TRADE_PAYMENT_OPTIONS = [
-  { plan: 1, label: 'Full payment', sub: '1 installment · 4% trade cash discount' },
-  { plan: 2, label: 'Half–half', sub: '2 installments · 3% trade cash discount' },
-  { plan: 3, label: 'Three payments', sub: '3 installments · 2% trade cash discount' },
-  { plan: 4, label: 'Four payments', sub: '4 installments · no trade cash discount' },
+/** Regular trade: payment timeline → CD on pre-GST taxable value (Trade Discount & Payment Terms). */
+const PAYMENT_TIMELINE_OPTIONS = [
+  {
+    plan: 5 as const,
+    label: 'Immediate payment',
+    sub: '5% cash discount (CD) — pay now; funds received same day',
+  },
+  {
+    plan: 1 as const,
+    label: 'Within 3 days',
+    sub: '4% cash discount (CD) — funds received in company account within 3 days',
+  },
+  {
+    plan: 2 as const,
+    label: 'Within 10 days',
+    sub: '3% cash discount (CD) — payment within 10 days of invoice',
+  },
+  {
+    plan: 3 as const,
+    label: 'Within 20 days',
+    sub: '2% cash discount (CD) — payment within 20 days of invoice',
+  },
+  {
+    plan: 4 as const,
+    label: '30 days (standard term)',
+    sub: 'No cash discount — standard credit term',
+  },
 ] as const;
 
 const checkoutSchema = yup.object().shape({
@@ -81,10 +105,11 @@ export const CheckoutScreen: React.FC = () => {
   const appliedPromo = useSelector((state: RootState) => state.cart.appliedPromo);
   const authUser = useSelector((state: RootState) => state.auth.user);
   const [submitting, setSubmitting] = useState(false);
-  const [installmentPlan, setInstallmentPlan] = useState(1);
+  const [paymentTimelinePlan, setPaymentTimelinePlan] = useState(4);
   const [planPickerOpen, setPlanPickerOpen] = useState(false);
   const [paySchedule, setPaySchedule] = useState<'FULL' | 'PARTIAL'>('FULL');
   const [initialPaymentStr, setInitialPaymentStr] = useState('');
+  const [paymentMode, setPaymentMode] = useState<'CREDIT' | 'GATEWAY'>('GATEWAY');
 
   useFocusEffect(
     useCallback(() => {
@@ -132,9 +157,10 @@ export const CheckoutScreen: React.FC = () => {
           : undefined
       : undefined;
   const allowPartial = authUser?.allowPartialPayment === true;
-  const selectedPlanOption =
-    TRADE_PAYMENT_OPTIONS.find((o) => o.plan === installmentPlan) ?? TRADE_PAYMENT_OPTIONS[0];
-  const priced = computeCartTotals(items, promoDiscount, installmentPlan, segment);
+  const selectedTimelineOption =
+    PAYMENT_TIMELINE_OPTIONS.find((o) => o.plan === paymentTimelinePlan) ??
+    PAYMENT_TIMELINE_OPTIONS[4];
+  const priced = computeCartTotals(items, promoDiscount, paymentTimelinePlan, segment);
   const { cashDiscountAmount, gstAmount, grandTotal: totalAmount, cashDiscountPercent } = priced;
 
   const clearServerCart = async () => {
@@ -176,7 +202,7 @@ export const CheckoutScreen: React.FC = () => {
         };
       });
 
-      const pricedSubmit = computeCartTotals(items, promoDiscount, installmentPlan, segment);
+      const pricedSubmit = computeCartTotals(items, promoDiscount, paymentTimelinePlan, segment);
       const grandTotal = Number(pricedSubmit.grandTotal.toFixed(2));
 
       let initialPay: number | undefined;
@@ -189,10 +215,10 @@ export const CheckoutScreen: React.FC = () => {
       }
 
       const createOrderRes = await createPaymentOrderApi({
-        customerId: authUser.roleId,
+        customerId: authUser.roleId || authUser.id,
         items: orderPayloadItems,
         totalAmount: grandTotal,
-        paymentMode: 'CREDIT',
+        paymentMode: paymentMode,
         promoCode: appliedPromo?.code,
         installmentPlanCount: pricedSubmit.plan,
         ...(paySchedule === 'PARTIAL' && allowPartial && initialPay != null
@@ -205,6 +231,52 @@ export const CheckoutScreen: React.FC = () => {
 
       if (!createOrderRes.success) {
         throw new Error(createOrderRes.message || 'Failed to place order');
+      }
+
+      // --- RAZORPAY FLOW ---
+      if (paymentMode === 'GATEWAY') {
+        const rzpOrderId = createOrderRes.data.razorpayOrderId;
+        const localOrderId = createOrderRes.data._id || createOrderRes.data.orderId;
+
+        if (!rzpOrderId) {
+          throw new Error('Server failed to initialize online payment (Razorpay ID missing).');
+        }
+
+        const options = {
+          description: `Order ${createOrderRes.data.orderNumber || 'Payment'}`,
+          image: 'https://via.placeholder.com/150',
+          currency: 'INR',
+          key: RAZORPAY_KEY_ID,
+          amount: Math.round((initialPay || grandTotal) * 100),
+          name: 'Necessity India',
+          order_id: rzpOrderId,
+          prefill: {
+            email: data.email,
+            contact: data.contactPhone,
+            name: data.contactName,
+          },
+          theme: { color: colors.primary },
+        };
+
+        try {
+          const rzpData = await RazorpayCheckout.open(options);
+          
+          // Verify on backend
+          const verifyRes = await verifyPaymentApi({
+            razorpay_order_id: rzpData.razorpay_order_id,
+            razorpay_payment_id: rzpData.razorpay_payment_id,
+            razorpay_signature: rzpData.razorpay_signature,
+            orderId: localOrderId as string,
+          });
+
+          if (!verifyRes.success) {
+            throw new Error(verifyRes.message || 'Payment verification failed on server.');
+          }
+        } catch (err: any) {
+          // Note: if user cancels, we still have the order in 'UNPAID' or 'PARTIAL' status on server.
+          // In a real app, you might want to delete the order or allow them to retry from Orders screen.
+          throw new Error(err.description || err.message || 'Payment failed or cancelled.');
+        }
       }
 
       await clearServerCart();
@@ -304,7 +376,9 @@ export const CheckoutScreen: React.FC = () => {
           )}
           {cashDiscountAmount > 0 && (
             <View style={styles.summaryRow}>
-              <Text style={styles.discountLabel}>Trade cash discount ({cashDiscountPercent}%)</Text>
+              <Text style={styles.discountLabel}>
+                Cash discount ({cashDiscountPercent}%){cashDiscountPercent > 0 ? ' — pre-GST' : ''}
+              </Text>
               <Text style={styles.discountValue}>-₹{cashDiscountAmount.toLocaleString()}</Text>
             </View>
           )}
@@ -326,17 +400,22 @@ export const CheckoutScreen: React.FC = () => {
         <View style={[styles.card, styles.formCard]}>
           <Text style={styles.inputLabel}>Payment</Text>
           <Text style={styles.paymentInfo}>
-            Checkout is on your trade account only. Card and bank transfer options are not shown here; pay
-            against the invoice (e.g. NEFT/RTGS) per terms. Discounts follow your selected payment plan
-            (pre-GST), then GST is calculated on the reduced taxable value.
+            All orders on the app are now paid online. Your payment will be processed securely via 
+            <Text style={styles.paymentInfoEm}> Razorpay</Text>. Choose 
+            <Text style={styles.paymentInfoEm}> Immediate payment</Text> for the maximum cash discount (5%). 
+            The discount is applied on the taxable value (after promo), and GST is then calculated on the 
+            reduced amount.
           </Text>
+
 
           {segment === 'REGULAR' && (
             <>
-              <Text style={[styles.inputLabel, { marginTop: spacing.md }]}>Payment schedule</Text>
+              <Text style={[styles.inputLabel, { marginTop: spacing.md }]}>
+                Payment timeline & cash discount
+              </Text>
               <Text style={styles.helperText}>
-                Choose full settlement or half–half (and other splits). Trade cash discount applies on the
-                taxable subtotal after promo, before GST.
+                Pay immediately for the highest CD (5%). Other options follow standard timelines; CD applies
+                on the taxable subtotal (after promo), before GST.
               </Text>
               <TouchableOpacity
                 style={styles.dropdownField}
@@ -344,8 +423,8 @@ export const CheckoutScreen: React.FC = () => {
                 activeOpacity={0.7}
               >
                 <View style={styles.dropdownFieldInner}>
-                  <Text style={styles.dropdownLabel}>{selectedPlanOption.label}</Text>
-                  <Text style={styles.dropdownSub}>{selectedPlanOption.sub}</Text>
+                  <Text style={styles.dropdownLabel}>{selectedTimelineOption.label}</Text>
+                  <Text style={styles.dropdownSub}>{selectedTimelineOption.sub}</Text>
                 </View>
                 <Icon name="chevron-down" size={22} color={colors.textSecondary} />
               </TouchableOpacity>
@@ -357,23 +436,23 @@ export const CheckoutScreen: React.FC = () => {
               >
                 <Pressable style={styles.modalOverlay} onPress={() => setPlanPickerOpen(false)}>
                   <Pressable style={styles.modalSheet} onPress={(e) => e.stopPropagation()}>
-                    <Text style={styles.modalTitle}>How do you want to pay?</Text>
-                    {TRADE_PAYMENT_OPTIONS.map((opt) => (
+                    <Text style={styles.modalTitle}>Standard payment terms</Text>
+                    {PAYMENT_TIMELINE_OPTIONS.map((opt) => (
                       <TouchableOpacity
                         key={opt.plan}
                         style={[
                           styles.modalOption,
-                          installmentPlan === opt.plan && styles.modalOptionActive,
+                          paymentTimelinePlan === opt.plan && styles.modalOptionActive,
                         ]}
                         onPress={() => {
-                          setInstallmentPlan(opt.plan);
+                          setPaymentTimelinePlan(opt.plan);
                           setPlanPickerOpen(false);
                         }}
                       >
                         <Text
                           style={[
                             styles.modalOptionLabel,
-                            installmentPlan === opt.plan && styles.modalOptionLabelActive,
+                            paymentTimelinePlan === opt.plan && styles.modalOptionLabelActive,
                           ]}
                         >
                           {opt.label}
@@ -392,53 +471,14 @@ export const CheckoutScreen: React.FC = () => {
               <Icon name="info" size={18} color={colors.textSecondary} />
               <Text style={styles.newCustomerNoticeText}>
                 Your account is tagged as <Text style={styles.newCustomerEm}>New</Text>. Checkout uses
-                standard terms without trade cash discount tiers. Ask your account manager to mark you as{' '}
-                <Text style={styles.newCustomerEm}>Regular</Text> to unlock full / half–half schedules and
-                CD on invoice.
+                standard terms without cash discount tiers. Ask your account manager to mark you as{' '}
+                <Text style={styles.newCustomerEm}>Regular</Text> to unlock payment timeline options and CD
+                on invoice.
               </Text>
             </View>
           )}
 
-          {allowPartial && (
-            <>
-              <Text style={[styles.inputLabel, { marginTop: spacing.md }]}>Pay now vs on account</Text>
-              <Text style={styles.helperText}>
-                If enabled for your account, you can record an initial payment amount; we will follow up for
-                the balance.
-              </Text>
-              <View style={styles.paymentModeRow}>
-                <TouchableOpacity
-                  style={[styles.paymentModeChip, paySchedule === 'FULL' && styles.paymentModeChipActive]}
-                  onPress={() => setPaySchedule('FULL')}
-                >
-                  <Text
-                    style={[styles.paymentModeText, paySchedule === 'FULL' && styles.paymentModeTextActive]}
-                  >
-                    Full on account
-                  </Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={[styles.paymentModeChip, paySchedule === 'PARTIAL' && styles.paymentModeChipActive]}
-                  onPress={() => setPaySchedule('PARTIAL')}
-                >
-                  <Text
-                    style={[styles.paymentModeText, paySchedule === 'PARTIAL' && styles.paymentModeTextActive]}
-                  >
-                    Part now
-                  </Text>
-                </TouchableOpacity>
-              </View>
-              {paySchedule === 'PARTIAL' && (
-                <AppInput
-                  label="Amount paying now (₹)"
-                  placeholder="e.g. 50000"
-                  value={initialPaymentStr}
-                  onChangeText={setInitialPaymentStr}
-                  keyboardType="decimal-pad"
-                />
-              )}
-            </>
-          )}
+
           <Controller
             control={control}
             name="companyName"
@@ -718,7 +758,7 @@ const styles = StyleSheet.create({
     width: 50,
     height: 50,
     borderRadius: 8,
-    backgroundColor: '#f0f0f0',
+    backgroundColor: colors.surfaceMuted,
     marginRight: spacing.md,
     borderWidth: 1,
     borderColor: colors.border,
@@ -779,7 +819,7 @@ const styles = StyleSheet.create({
   },
   paymentModeChipActive: {
     borderColor: colors.primary,
-    backgroundColor: 'rgba(230, 126, 34, 0.1)',
+    backgroundColor: 'rgba(243, 119, 50, 0.12)',
   },
   paymentModeText: {
     fontSize: 12,
@@ -796,6 +836,7 @@ const styles = StyleSheet.create({
     lineHeight: 20,
     marginBottom: spacing.sm,
   },
+  paymentInfoEm: { fontWeight: fontWeight.bold, color: colors.text },
   helperText: {
     fontSize: 12,
     color: colors.textSecondary,
@@ -852,7 +893,7 @@ const styles = StyleSheet.create({
   },
   modalOptionActive: {
     borderColor: colors.primary,
-    backgroundColor: 'rgba(230, 126, 34, 0.08)',
+    backgroundColor: 'rgba(243, 119, 50, 0.1)',
   },
   modalOptionLabel: {
     fontSize: fontSize.base,
